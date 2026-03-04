@@ -301,10 +301,14 @@ class AIGenerationLayer:
             content = content[1:-1]
         elif content.startswith("'") and content.endswith("'"):
             content = content[1:-1]
-        
+
+        # Strip URLs (including UTM-laden links) that the model may echo back
+        content = re.sub(r'https?://\S+', '', content)
+        content = re.sub(r'www\.\S+', '', content)
+
         # Remove extra whitespace
         content = re.sub(r'\s+', ' ', content).strip()
-        
+
         return content
     
     def _parse_hashtags(self, content: str) -> List[str]:

@@ -48,6 +48,33 @@ def _cache_key(brand: str, competitor: str, zipcode: str, num_variations: int = 
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
+def _sanitize_competitor_name(raw: str) -> str:
+    """
+    If the user pasted a URL as the competitor name, extract the domain-based
+    business name.  Otherwise return the input unchanged.
+    """
+    from urllib.parse import urlparse
+    stripped = raw.strip()
+    # Detect URLs: starts with a scheme or looks like a domain/path
+    if stripped.startswith(('http://', 'https://', 'www.')):
+        try:
+            if not stripped.startswith(('http://', 'https://')):
+                stripped = 'https://' + stripped
+            parsed = urlparse(stripped)
+            domain = parsed.netloc or parsed.path.split('/')[0]
+            # Remove www. prefix
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            # Take the first label of the domain (e.g. "junaidjamshed" from "junaidjamshed.com")
+            business = domain.split('.')[0]
+            # Convert hyphens/underscores to spaces and title-case
+            business = business.replace('-', ' ').replace('_', ' ').title()
+            return business if business else stripped
+        except Exception:
+            return stripped
+    return stripped
+
+
 def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Background job to generate ads.
@@ -71,7 +98,7 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         our_brand = data.get('our_brand', '')
-        competitor_name = data.get('competitor_name', '')
+        competitor_name = _sanitize_competitor_name(data.get('competitor_name', ''))
         zipcode = data.get('zipcode', '')
         hashtags = data.get('hashtags', [])
         num_variations = data.get('num_variations', 3)
@@ -522,14 +549,27 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:
                 print(f"Warning: Failed to save recipients to database: {e}")
         
-        notification = NotificationLayer()
-        
-        if notification is None:
+        try:
+            notification = NotificationLayer()
+        except Exception as e:
             return {
                 'success': False,
-                'error': 'Notifications not configured'
+                'error': f'Notification service unavailable: {e}'
             }
-        
+
+        # Check that at least one required provider is available for the recipients provided
+        missing = []
+        if sms_users and NotificationType.SMS not in notification.providers:
+            missing.append('SMS (Twilio credentials are missing or invalid)')
+        if email_users and NotificationType.EMAIL not in notification.providers:
+            missing.append('Email (SendGrid credentials are missing or invalid)')
+        if missing:
+            return {
+                'success': False,
+                'error': f'Required notification providers not available: {", ".join(missing)}. '
+                         f'Please configure the credentials in your .env file.'
+            }
+
         results = {
             'sms_results': [],
             'email_results': [],

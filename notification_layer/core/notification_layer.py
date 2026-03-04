@@ -43,26 +43,32 @@ class NotificationLayer:
     
     def _initialize_providers(self) -> None:
         """Initialize available notification providers."""
-        try:
-            # Initialize Twilio SMS provider
-            if self.config.is_twilio_enabled():
+        # Initialize Twilio SMS provider independently
+        if self.config.is_twilio_enabled():
+            try:
                 twilio_config = self.config.get_twilio_config()
                 twilio_config.update(self.config.get_general_config())
                 self.providers[NotificationType.SMS] = TwilioSMSProvider(twilio_config)
                 self.logger.info("Twilio SMS provider initialized")
-            
-            # Initialize SendGrid email provider
-            if self.config.is_sendgrid_enabled():
+            except Exception as e:
+                self.logger.warning(
+                    f"Twilio SMS provider could not be initialized and will be disabled: {e}"
+                )
+
+        # Initialize SendGrid email provider independently
+        if self.config.is_sendgrid_enabled():
+            try:
                 sendgrid_config = self.config.get_sendgrid_config()
                 sendgrid_config.update(self.config.get_general_config())
                 self.providers[NotificationType.EMAIL] = SendGridEmailProvider(sendgrid_config)
                 self.logger.info("SendGrid email provider initialized")
-            
-            if not self.providers:
-                self.logger.warning("No notification providers initialized")
-                
-        except Exception as e:
-            raise ConfigurationError(f"Failed to initialize providers: {e}")
+            except Exception as e:
+                self.logger.warning(
+                    f"SendGrid email provider could not be initialized and will be disabled: {e}"
+                )
+
+        if not self.providers:
+            self.logger.warning("No notification providers initialized")
     
     def send_sms(self, to_phone: str, message: str, **kwargs) -> NotificationResult:
         """
