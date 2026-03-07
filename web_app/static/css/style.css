@@ -1235,3 +1235,92 @@ small {
         overflow-x: auto;
     }
 }
+
+/* ── Single Sender Verification Panel ─────────────────────────────────────── */
+
+.sender-verify-panel {
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+    margin: 20px 0;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+}
+
+.sender-verify-panel:focus-within {
+    box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.12);
+    border-color: #ff6600;
+}
+
+.sender-verify-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    background: #fff8f4;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: background 0.15s;
+}
+
+.sender-verify-header:hover {
+    background: #fff0e6;
+}
+
+.sender-verify-title {
+    font-weight: 600;
+    font-size: 0.97rem;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sender-verify-toggle {
+    font-size: 0.8rem;
+    color: #888;
+    transition: transform 0.2s;
+}
+
+.sender-verify-body {
+    padding: 18px;
+    background: #fff;
+    border-top: 1px solid #f0e8e0;
+}
+
+.sender-verify-desc {
+    font-size: 0.88rem;
+    color: #555;
+    margin: 0 0 14px;
+    line-height: 1.5;
+}
+
+/* Badge states */
+.sender-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.02em;
+}
+
+.sender-badge-unknown   { background: #e9ecef; color: #6c757d; }
+.sender-badge-checking  { background: #fff3cd; color: #856404; }
+.sender-badge-unverified{ background: #f8d7da; color: #721c24; }
+.sender-badge-pending   { background: #fff3cd; color: #856404; }
+.sender-badge-verified  { background: #d4edda; color: #155724; }
+
+/* Status message */
+.sender-status-msg {
+    font-size: 0.88rem;
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-top: 10px;
+    line-height: 1.5;
+}
+
+.sender-status-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.sender-status-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+.sender-status-error   { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+/* ─────────────────────────────────────────────────────────────────────────── */

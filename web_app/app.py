@@ -38,7 +38,7 @@ try:
     from jobs.queue_manager import init_queue, enqueue_job, get_job_status, is_queue_available, has_active_workers
     from jobs.job_handlers import generate_ads_job, send_notifications_job
     QUEUE_MODULE_AVAILABLE = True
-except ImportError as e:
+except (ImportError, ValueError) as e:
     print(f"Warning: Queue system not available: {e}")
     QUEUE_MODULE_AVAILABLE = False
     init_queue = lambda: False
@@ -58,13 +58,12 @@ app = Flask(__name__,
 app.secret_key = os.getenv('SECRET_KEY', 'adscompetitor-secret-key-change-in-production')
 CORS(app)
 
-# Initialize queue system
+# Initialize queue system (optional)
 queue_available = False
 if QUEUE_MODULE_AVAILABLE:
     try:
         queue_available = init_queue()
-    except Exception as e:
-        print(f"Warning: Failed to initialize queue: {e}")
+    except Exception:
         queue_available = False
 
 # Initialize database (optional)
@@ -72,15 +71,10 @@ try:
     from database.db_manager import init_db_pool, init_database, is_db_available
     db_pool = init_db_pool()
     if db_pool and is_db_available():
-        # Initialize schema if needed
         init_database()
         print("Database initialized successfully")
-    else:
-        print("Warning: Database not available, continuing without persistence")
-except ImportError:
-    print("Warning: Database module not available, continuing without persistence")
-except Exception as e:
-    print(f"Warning: Failed to initialize database: {e}, continuing without persistence")
+except (ImportError, Exception):
+    pass
 
 # Initialize layers (lazy loading)
 ai_layer = None
@@ -170,6 +164,161 @@ def validate_email_endpoint():
         'valid': is_valid
     })
 
+
+# ── SendGrid Single Sender Verification ──────────────────────────────────────
+
+@app.route('/api/sendgrid/verify-sender', methods=['POST'])
+def sendgrid_verify_sender():
+    """
+    Create a SendGrid single sender verification request.
+    SendGrid will email the given address a confirmation link.
+    """
+    import ssl
+    try:
+        ssl._create_default_https_context = ssl._create_unverified_context
+    except Exception:
+        pass
+
+    try:
+        import sendgrid as sg_module
+        from sendgrid import SendGridAPIClient
+    except ImportError:
+        return jsonify({'success': False, 'error': 'SendGrid library not installed'}), 500
+
+    data = request.json or {}
+    email      = (data.get('email') or '').strip().lower()
+    name       = (data.get('name') or '').strip()
+    reply_to   = (data.get('reply_to') or email).strip().lower()
+    nickname   = (data.get('nickname') or name or email).strip()
+    address    = (data.get('address') or '123 Main St').strip()
+    city       = (data.get('city') or 'New York').strip()
+    country    = (data.get('country') or 'US').strip()
+
+    if not email:
+        return jsonify({'success': False, 'error': 'Email is required'}), 400
+
+    api_key = os.getenv('SENDGRID_API_KEY', '')
+    if not api_key:
+        return jsonify({'success': False, 'error': 'SendGrid API key not configured'}), 500
+
+    print(f"[SenderVerify] Requesting single sender verification for: {email}")
+
+    try:
+        client = SendGridAPIClient(api_key=api_key)
+
+        # First check if this sender already exists
+        existing = client.client.verified_senders.get()
+        if existing.status_code == 200:
+            import json as _json
+            body = _json.loads(existing.body)
+            for sender in body.get('results', []):
+                if sender.get('from_email', '').lower() == email:
+                    verified = sender.get('verified', False)
+                    print(f"[SenderVerify] Sender already exists — verified={verified}")
+                    return jsonify({
+                        'success': True,
+                        'already_exists': True,
+                        'verified': verified,
+                        'message': (
+                            'This sender is already verified and ready to use.'
+                            if verified else
+                            'Verification email already sent. Please check your inbox and click the confirmation link.'
+                        )
+                    })
+
+        # Create new single sender verification request
+        payload = {
+            "nickname": nickname,
+            "from": {"email": email, "name": name or nickname},
+            "reply_to": {"email": reply_to, "name": name or nickname},
+            "address": address,
+            "city": city,
+            "country": country
+        }
+
+        response = client.client.verified_senders.post(request_body=payload)
+        print(f"[SenderVerify] API response: {response.status_code}")
+
+        if response.status_code in (200, 201):
+            return jsonify({
+                'success': True,
+                'already_exists': False,
+                'verified': False,
+                'message': (
+                    f'Verification email sent to {email}. '
+                    'Please check your inbox and click the confirmation link from SendGrid.'
+                )
+            })
+        else:
+            import json as _json
+            body = {}
+            try:
+                body = _json.loads(response.body)
+            except Exception:
+                pass
+            errors = body.get('errors', [{}])
+            msg = errors[0].get('message', f'SendGrid returned HTTP {response.status_code}') if errors else str(body)
+            print(f"[SenderVerify] Error: {msg}")
+            return jsonify({'success': False, 'error': msg}), 400
+
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/sendgrid/sender-status', methods=['GET'])
+def sendgrid_sender_status():
+    """
+    Check whether a given email address is a verified SendGrid single sender.
+    Query param: ?email=user@example.com
+    """
+    import ssl
+    try:
+        ssl._create_default_https_context = ssl._create_unverified_context
+    except Exception:
+        pass
+
+    try:
+        from sendgrid import SendGridAPIClient
+    except ImportError:
+        return jsonify({'success': False, 'error': 'SendGrid library not installed'}), 500
+
+    email = (request.args.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({'success': False, 'error': 'email query param required'}), 400
+
+    api_key = os.getenv('SENDGRID_API_KEY', '')
+    if not api_key:
+        return jsonify({'success': False, 'error': 'SendGrid API key not configured'}), 500
+
+    try:
+        import json as _json
+        client = SendGridAPIClient(api_key=api_key)
+        response = client.client.verified_senders.get()
+
+        if response.status_code == 200:
+            body = _json.loads(response.body)
+            for sender in body.get('results', []):
+                if sender.get('from_email', '').lower() == email:
+                    return jsonify({
+                        'success': True,
+                        'found': True,
+                        'verified': sender.get('verified', False),
+                        'nickname': sender.get('nickname', ''),
+                        'from_name': sender.get('from_name', '')
+                    })
+            return jsonify({'success': True, 'found': False, 'verified': False})
+        else:
+            return jsonify({'success': False, 'error': f'SendGrid API returned {response.status_code}'}), 400
+
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route('/api/parse-competitor-url', methods=['POST'])
 def parse_competitor_url():

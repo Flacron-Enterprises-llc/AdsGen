@@ -35,7 +35,6 @@ except ImportError as e:
     SendDB = None
     EventDB = None
     is_db_available = lambda: False
-    print(f"Database module not available: {e}")
 
 
 # Simple in-memory cache (in production, use Redis)

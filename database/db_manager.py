@@ -42,7 +42,7 @@ def init_db_pool(minconn=1, maxconn=10):
         return _connection_pool
         
     except Exception as e:
-        logger.error(f"Failed to initialize database pool: {e}")
+        logger.debug(f"Database not available (optional): {e}")
         return None
 
 
