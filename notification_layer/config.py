@@ -20,15 +20,42 @@ except ImportError:
 from .exceptions import ConfigurationError
 
 
+def _mask(val: Optional[str], show: int = 8) -> str:
+    if not val:
+        return '<NOT SET>'
+    return val[:show] + '...' if len(val) > show else val
+
+
 class NotificationConfig:
     """Configuration manager for notification services."""
-    
+
     def __init__(self):
         """Initialize configuration from environment variables."""
         self.twilio_config = self._load_twilio_config()
         self.sendgrid_config = self._load_sendgrid_config()
         self.general_config = self._load_general_config()
+
+        print("\n[NotificationConfig] Credentials loaded:")
+        print(f"  Twilio  SID    = {_mask(self.twilio_config.get('account_sid'))}")
+        print(f"  Twilio  Token  = {_mask(self.twilio_config.get('auth_token'))}")
+        print(f"  Twilio  Phone  = {self.twilio_config.get('phone_number', '<NOT SET>')}")
+        print(f"  Twilio  enabled= {self.twilio_config.get('enabled')}")
+        print(f"  SendGrid Key   = {_mask(self.sendgrid_config.get('api_key'))}")
+        print(f"  SendGrid Email = {self.sendgrid_config.get('from_email', '<NOT SET>')}")
+        print(f"  SendGrid enabled={self.sendgrid_config.get('enabled')}")
     
+    @staticmethod
+    def _is_placeholder(value: Optional[str]) -> bool:
+        """Return True if value looks like an unfilled placeholder."""
+        if not value:
+            return True
+        lowered = value.lower().strip()
+        return (
+            lowered.startswith("your_")
+            or lowered.endswith("_here")
+            or lowered in ("", "none", "null", "changeme", "placeholder")
+        )
+
     def _load_twilio_config(self) -> Dict[str, Any]:
         """Load Twilio configuration from environment variables."""
         config = {
@@ -37,19 +64,14 @@ class NotificationConfig:
             "phone_number": os.getenv("TWILIO_PHONE_NUMBER"),
             "enabled": os.getenv("TWILIO_ENABLED", "true").lower() in ("true", "1", "yes")
         }
-        
-        # Only validate if explicitly enabled AND credentials are provided
-        # If enabled but credentials missing, just mark as disabled to avoid errors
+
         if config["enabled"]:
             required_fields = ["account_sid", "auth_token", "phone_number"]
-            missing_fields = [field for field in required_fields if not config[field]]
-            
-            if missing_fields:
-                # Don't raise error, just disable Twilio if credentials are missing
+            if any(self._is_placeholder(config[f]) for f in required_fields):
                 config["enabled"] = False
-        
+
         return config
-    
+
     def _load_sendgrid_config(self) -> Dict[str, Any]:
         """Load SendGrid configuration from environment variables."""
         config = {
@@ -58,17 +80,12 @@ class NotificationConfig:
             "from_name": os.getenv("SENDGRID_FROM_NAME", "AdsCompetitor"),
             "enabled": os.getenv("SENDGRID_ENABLED", "true").lower() in ("true", "1", "yes")
         }
-        
-        # Only validate if explicitly enabled AND credentials are provided
-        # If enabled but credentials missing, just mark as disabled to avoid errors
+
         if config["enabled"]:
             required_fields = ["api_key", "from_email"]
-            missing_fields = [field for field in required_fields if not config[field]]
-            
-            if missing_fields:
-                # Don't raise error, just disable SendGrid if credentials are missing
+            if any(self._is_placeholder(config[f]) for f in required_fields):
                 config["enabled"] = False
-        
+
         return config
     
     def _load_general_config(self) -> Dict[str, Any]:

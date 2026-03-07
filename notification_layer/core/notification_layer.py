@@ -43,17 +43,27 @@ class NotificationLayer:
     
     def _initialize_providers(self) -> None:
         """Initialize available notification providers."""
+        print(f"\n[NotificationLayer] _initialize_providers()")
+        print(f"[NotificationLayer]   twilio_enabled  = {self.config.is_twilio_enabled()}")
+        print(f"[NotificationLayer]   sendgrid_enabled= {self.config.is_sendgrid_enabled()}")
+
         # Initialize Twilio SMS provider independently
         if self.config.is_twilio_enabled():
             try:
                 twilio_config = self.config.get_twilio_config()
                 twilio_config.update(self.config.get_general_config())
                 self.providers[NotificationType.SMS] = TwilioSMSProvider(twilio_config)
+                print("[NotificationLayer] ✓ Twilio SMS provider initialized")
                 self.logger.info("Twilio SMS provider initialized")
             except Exception as e:
+                import traceback
+                print(f"[NotificationLayer] ✗ Twilio SMS provider FAILED: {e}")
+                traceback.print_exc()
                 self.logger.warning(
                     f"Twilio SMS provider could not be initialized and will be disabled: {e}"
                 )
+        else:
+            print("[NotificationLayer]   Twilio SMS skipped (disabled or placeholder creds)")
 
         # Initialize SendGrid email provider independently
         if self.config.is_sendgrid_enabled():
@@ -61,13 +71,21 @@ class NotificationLayer:
                 sendgrid_config = self.config.get_sendgrid_config()
                 sendgrid_config.update(self.config.get_general_config())
                 self.providers[NotificationType.EMAIL] = SendGridEmailProvider(sendgrid_config)
+                print("[NotificationLayer] ✓ SendGrid email provider initialized")
                 self.logger.info("SendGrid email provider initialized")
             except Exception as e:
+                import traceback
+                print(f"[NotificationLayer] ✗ SendGrid email provider FAILED: {e}")
+                traceback.print_exc()
                 self.logger.warning(
                     f"SendGrid email provider could not be initialized and will be disabled: {e}"
                 )
+        else:
+            print("[NotificationLayer]   SendGrid email skipped (disabled or placeholder creds)")
 
+        print(f"[NotificationLayer]   Active providers: {list(self.providers.keys())}")
         if not self.providers:
+            print("[NotificationLayer] ⚠ No notification providers initialized")
             self.logger.warning("No notification providers initialized")
     
     def send_sms(self, to_phone: str, message: str, **kwargs) -> NotificationResult:

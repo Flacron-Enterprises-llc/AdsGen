@@ -52,7 +52,10 @@ class GeminiProvider(BaseLLMProvider):
         
         if not self.api_key:
             raise ProviderError("Gemini API key not found in config, environment variable, or .env file")
-        
+
+        masked = self.api_key[:8] + '...' if len(self.api_key) > 8 else self.api_key
+        print(f"[GeminiProvider] GEMINI_API_KEY = {masked}")
+
         # Configure Gemini
         genai.configure(api_key=self.api_key)
         
@@ -63,6 +66,7 @@ class GeminiProvider(BaseLLMProvider):
         
         # Initialize model
         self.model = genai.GenerativeModel(self.model_name)
+        print(f"[GeminiProvider] ✓ Model loaded: {self.model_name}  temp={self.temperature}  max_tokens={self.max_output_tokens}")
 
         if self.debug:
             print("\n[GeminiProvider] Configured")
@@ -127,12 +131,14 @@ class GeminiProvider(BaseLLMProvider):
                 })
                 print("  SafetySettings →", {k.name: v.name for k, v in self.safety_settings.items()})
 
+            print(f"[GeminiProvider] Calling API… (prompt length={len(str(prompt))} chars)")
             response = self.model.generate_content(
                 prompt,
                 generation_config=generation_config,
                 safety_settings=self.safety_settings
             )
-            
+            print(f"[GeminiProvider] ✓ Got response ({len(response.text or '')} chars)")
+
             # Check if response was blocked
             if response.prompt_feedback and response.prompt_feedback.block_reason:
                 raise ProviderError(f"Prompt was blocked: {response.prompt_feedback.block_reason}")

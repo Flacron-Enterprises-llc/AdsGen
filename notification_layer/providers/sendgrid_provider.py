@@ -65,7 +65,9 @@ class SendGridEmailProvider(BaseNotificationProvider):
             raise ImportError(
                 "SendGrid library not installed. Install with: pip install sendgrid>=6.10.0"
             )
-        
+
+        api_key = self.config.get("api_key", "")
+        print(f"[SendGridProvider] Initialising client — key={api_key[:8]}...  from={self.config.get('from_email')}")
         try:
             self.sg = sendgrid.SendGridAPIClient(api_key=self.config["api_key"])
             
@@ -73,8 +75,10 @@ class SendGridEmailProvider(BaseNotificationProvider):
             try:
                 response = self.sg.client.user.profile.get()
                 if response.status_code == 200:
+                    print(f"[SendGridProvider] ✓ Auth test passed (HTTP 200)")
                     self.logger.info("SendGrid client initialized and validated successfully")
                 else:
+                    print(f"[SendGridProvider]   Auth test returned HTTP {response.status_code}")
                     self.logger.warning(f"SendGrid client test returned status: {response.status_code}")
             except Exception as test_error:
                 # If it's an SSL error, just log a warning and continue
@@ -114,14 +118,15 @@ class SendGridEmailProvider(BaseNotificationProvider):
             # Create SendGrid mail object
             mail = self._create_mail_object(email_message)
             
-            # Send the email
+            print(f"[SendGridProvider] Sending email to {email_message.to_email}  subject={email_message.subject!r}")
             self.logger.info(f"Sending email to {email_message.to_email}")
             response = self.sg.send(mail)
             
             # Check response status
+            print(f"[SendGridProvider] HTTP response: {response.status_code}")
             if response.status_code in [200, 201, 202]:
-                # Extract message ID from response headers
                 message_id = response.headers.get('X-Message-Id', 'unknown')
+                print(f"[SendGridProvider] ✓ Email sent — message_id={message_id}")
                 
                 result = NotificationResult(
                     success=True,

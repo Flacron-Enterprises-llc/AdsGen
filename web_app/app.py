@@ -174,8 +174,10 @@ def validate_email_endpoint():
 @app.route('/api/parse-competitor-url', methods=['POST'])
 def parse_competitor_url():
     """Parse competitor URL to extract basic information."""
+    print("\n[API] POST /api/parse-competitor-url")
     try:
         data = request.json
+        print(f"[API]   payload: {data}")
         url = data.get('url', '').strip()
         
         if not url:
@@ -215,8 +217,10 @@ def parse_competitor_url():
 @app.route('/api/generate', methods=['POST'])
 def generate_ads():
     """Generate ads from competitor data (background job)."""
+    print("\n[STEP 2] POST /api/generate  ──────────────────────────")
     try:
         data = request.json
+        print(f"[STEP 2] Input data: {json.dumps(data, indent=2)}")
         
         # Use background job if queue is available
         if queue_available:
@@ -243,10 +247,14 @@ def generate_ads():
             if result.get('success'):
                 session['generated_ads'] = result['ads']
                 session['competitor_data'] = data
-                session['campaign_id'] = result.get('campaign_id')  # Store campaign_id
+                session['campaign_id'] = result.get('campaign_id')
+                print(f"[STEP 2] ✓ Generated {len(result['ads'])} ads  (cached={result.get('cached', False)})")
+            else:
+                print(f"[STEP 2] ✗ Generation failed: {result.get('error')}")
             return jsonify(result)
-        
+
     except Exception as e:
+        print(f"[STEP 2] ✗ Exception: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -256,8 +264,12 @@ def generate_ads():
 @app.route('/api/send', methods=['POST'])
 def send_ads():
     """Send generated ads to users (background job)."""
+    print("\n[STEP 4] POST /api/send  ──────────────────────────────")
     try:
         data = request.json
+        print(f"[STEP 4] SMS users   : {data.get('sms_users', [])}")
+        print(f"[STEP 4] Email users : {data.get('email_users', [])}")
+        print(f"[STEP 4] Ads count   : {len(data.get('ads', []))}")
         
         # Get generated ads from session or request
         ads = data.get('ads', session.get('generated_ads', []))
@@ -305,13 +317,18 @@ def send_ads():
         else:
             # Fallback to synchronous execution
             result = send_notifications_job(job_data)
+            if result.get('success'):
+                summary = result.get('summary', {})
+                print(f"[STEP 4] ✓ Send complete — summary: {summary}")
+            else:
+                print(f"[STEP 4] ✗ Send failed: {result.get('error')}")
             return jsonify(result)
-        
+
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
-        print(f"[ERROR] Exception in send_ads: {str(e)}")
-        print(f"[ERROR] Traceback:\n{error_trace}")
+        print(f"[STEP 4] ✗ Exception in send_ads: {str(e)}")
+        print(f"[STEP 4] Traceback:\n{error_trace}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -337,6 +354,7 @@ def get_job(job_id):
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Get notification provider status and queue status."""
+    print("\n[API] GET /api/status")
     try:
         notification = get_notification_layer()
         notification_status = {}
