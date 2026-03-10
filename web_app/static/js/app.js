@@ -1749,7 +1749,9 @@ async function verifySender() {
     const name     = (document.getElementById('senderName')?.value || '').trim();
     const address  = (document.getElementById('senderAddress')?.value || '').trim();
     const city     = (document.getElementById('senderCity')?.value || '').trim();
-    const country  = (document.getElementById('senderCountry')?.value || '').trim().toUpperCase();
+    const state    = (document.getElementById('senderState')?.value || '').trim();
+    const zip      = (document.getElementById('senderZip')?.value || '').trim();
+    const country  = (document.getElementById('senderCountry')?.value || '').trim();
     const replyTo  = (document.getElementById('senderReplyTo')?.value || '').trim();
 
     if (!email) {
@@ -1777,7 +1779,9 @@ async function verifySender() {
                 nickname: name || email,
                 reply_to: replyTo || email,
                 address:  address || '123 Main St',
-                city:     city    || 'New York',
+                city:     city    || 'City',
+                state:    state,
+                zip:      zip,
                 country:  country || 'US'
             })
         });

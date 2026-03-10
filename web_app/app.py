@@ -203,39 +203,50 @@ def sendgrid_verify_sender():
 
     print(f"[SenderVerify] Requesting single sender verification for: {email}")
 
+    import json as _json
+
     try:
         client = SendGridAPIClient(api_key=api_key)
 
-        # First check if this sender already exists
-        existing = client.client.verified_senders.get()
-        if existing.status_code == 200:
-            import json as _json
-            body = _json.loads(existing.body)
-            for sender in body.get('results', []):
-                if sender.get('from_email', '').lower() == email:
-                    verified = sender.get('verified', False)
-                    print(f"[SenderVerify] Sender already exists — verified={verified}")
-                    return jsonify({
-                        'success': True,
-                        'already_exists': True,
-                        'verified': verified,
-                        'message': (
-                            'This sender is already verified and ready to use.'
-                            if verified else
-                            'Verification email already sent. Please check your inbox and click the confirmation link.'
-                        )
-                    })
+        # ── Check if this sender already exists ───────────────────────────
+        try:
+            existing = client.client.verified_senders.get()
+            if existing.status_code == 200:
+                body = _json.loads(existing.body)
+                for sender in body.get('results', []):
+                    if sender.get('from_email', '').lower() == email:
+                        verified = sender.get('verified', False)
+                        print(f"[SenderVerify] Sender already exists — verified={verified}")
+                        return jsonify({
+                            'success': True,
+                            'already_exists': True,
+                            'verified': verified,
+                            'message': (
+                                'This sender is already verified and ready to use.'
+                                if verified else
+                                'Verification email already sent. Please check your inbox and click the confirmation link.'
+                            )
+                        })
+        except Exception as check_err:
+            print(f"[SenderVerify] Could not check existing senders: {check_err}")
 
-        # Create new single sender verification request
+        # ── Build the flat payload SendGrid requires ───────────────────────
+        # SendGrid Single Sender API uses flat field names, NOT nested objects.
         payload = {
-            "nickname": nickname,
-            "from": {"email": email, "name": name or nickname},
-            "reply_to": {"email": reply_to, "name": name or nickname},
-            "address": address,
-            "city": city,
-            "country": country
+            "nickname":       nickname,
+            "from_email":     email,
+            "from_name":      name or nickname,
+            "reply_to":       reply_to,
+            "reply_to_name":  name or nickname,
+            "address":        address,
+            "address2":       (data.get('address2') or '').strip(),
+            "city":           city,
+            "state":          (data.get('state') or '').strip(),
+            "zip":            (data.get('zip') or '').strip(),
+            "country":        country,
         }
 
+        print(f"[SenderVerify] Payload: {_json.dumps(payload)}")
         response = client.client.verified_senders.post(request_body=payload)
         print(f"[SenderVerify] API response: {response.status_code}")
 
@@ -249,22 +260,33 @@ def sendgrid_verify_sender():
                     'Please check your inbox and click the confirmation link from SendGrid.'
                 )
             })
-        else:
-            import json as _json
-            body = {}
-            try:
-                body = _json.loads(response.body)
-            except Exception:
-                pass
-            errors = body.get('errors', [{}])
-            msg = errors[0].get('message', f'SendGrid returned HTTP {response.status_code}') if errors else str(body)
-            print(f"[SenderVerify] Error: {msg}")
-            return jsonify({'success': False, 'error': msg}), 400
+
+        # Non-2xx but no exception — parse SendGrid error body
+        body = {}
+        try:
+            body = _json.loads(response.body)
+        except Exception:
+            pass
+        errors = body.get('errors', [])
+        msg = errors[0].get('message', f'SendGrid returned HTTP {response.status_code}') if errors else str(body)
+        print(f"[SenderVerify] Error from SendGrid: {msg}")
+        return jsonify({'success': False, 'error': msg}), 400
 
     except Exception as exc:
+        # Extract the real SendGrid error body from the exception when available
+        error_detail = str(exc)
+        try:
+            if hasattr(exc, 'body'):
+                sg_body = _json.loads(exc.body)
+                errors = sg_body.get('errors', [])
+                if errors:
+                    error_detail = errors[0].get('message', error_detail)
+                    print(f"[SenderVerify] SendGrid body error: {error_detail}")
+        except Exception:
+            pass
         import traceback
         traceback.print_exc()
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return jsonify({'success': False, 'error': error_detail}), 500
 
 
 @app.route('/api/sendgrid/sender-status', methods=['GET'])
