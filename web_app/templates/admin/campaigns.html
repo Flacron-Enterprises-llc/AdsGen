@@ -1,0 +1,44 @@
+{% extends "admin/base.html" %}
+{% block title %}Campaigns{% endblock %}
+{% block content %}
+<h1>Campaign Statistics</h1>
+<p class="admin-subtitle">Campaign and send counts from Firestore.</p>
+
+{% if campaigns %}
+<div class="admin-card">
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Brand</th>
+            <th>Competitor</th>
+            <th>Status</th>
+            <th>Ad variants</th>
+            <th>Sends</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in campaigns %}
+        <tr>
+            <td><code style="font-size:0.85rem; color:var(--text-muted);">{{ c.id[:8] }}...</code></td>
+            <td><strong>{{ c.brand_name }}</strong></td>
+            <td>{{ c.competitor_name }}</td>
+            <td>
+                {% set st = (c.status or 'draft')|lower %}
+                <span class="admin-badge {{ 'badge-green' if st=='active' else 'badge-yellow' if st=='paused' else 'badge-blue' if st=='completed' else 'badge-gray' }}">
+                    {{ st|capitalize }}
+                </span>
+            </td>
+            <td>{{ c.ad_count }}</td>
+            <td>{{ c.send_count }}</td>
+            <td style="font-size:0.9rem; color:var(--text-muted);">{{ c.created_at[:16] if c.created_at else '' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="admin-card"><p class="admin-empty">No campaigns found. Run the generator in the app to create campaigns.</p></div>
+{% endif %}
+{% endblock %}

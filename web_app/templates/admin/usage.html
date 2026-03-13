@@ -1,0 +1,24 @@
+{% extends "admin/base.html" %}
+{% block title %}SMS & Email Usage{% endblock %}
+{% block content %}
+<h1>SMS & Email Usage</h1>
+<p class="admin-subtitle">Totals from the sends table (PostgreSQL).</p>
+
+<div class="admin-stats-grid">
+    <div class="admin-stat-card">
+        <div class="admin-stat-icon">💬</div>
+        <div class="admin-stat-label">SMS Total Sends</div>
+        <div class="admin-stat-value">{{ sms_total }}</div>
+        <div class="admin-stat-desc">{{ sms_sent }} delivered</div>
+    </div>
+    
+    <div class="admin-stat-card">
+        <div class="admin-stat-icon">📧</div>
+        <div class="admin-stat-label">Email Total Sends</div>
+        <div class="admin-stat-value">{{ email_total }}</div>
+        <div class="admin-stat-desc">{{ email_sent }} delivered</div>
+    </div>
+</div>
+
+<p class="admin-empty">Usage data is tracked via the <code>sends</code> table in PostgreSQL.</p>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "admin/base.html" %}
+{% block title %}Pricing{% endblock %}
+{% block content %}
+<h1>Adjust Pricing</h1>
+<p class="admin-subtitle">Update display prices and Stripe Price IDs. These values override defaults in .env.</p>
+
+<div class="admin-card">
+    <form id="pricingForm">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+            <div>
+                <h4 style="margin-bottom: 16px; color: var(--primary);">Starter Plan</h4>
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:8px; font-weight:600;">Display Price ($)</label>
+                    <input type="text" name="starter_price" value="{{ pricing.get('starter_price', '49.99') }}" class="admin-modal-input" placeholder="49.99">
+                </div>
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:8px; font-weight:600;">Stripe Price ID</label>
+                    <input type="text" name="stripe_price_starter" value="{{ pricing.get('stripe_price_starter', '') }}" class="admin-modal-input" placeholder="price_...">
+                </div>
+            </div>
+            
+            <div>
+                <h4 style="margin-bottom: 16px; color: var(--secondary);">Pro Plan</h4>
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:8px; font-weight:600;">Display Price ($)</label>
+                    <input type="text" name="pro_price" value="{{ pricing.get('pro_price', '97.99') }}" class="admin-modal-input" placeholder="97.99">
+                </div>
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:8px; font-weight:600;">Stripe Price ID</label>
+                    <input type="text" name="stripe_price_pro" value="{{ pricing.get('stripe_price_pro', '') }}" class="admin-modal-input" placeholder="price_...">
+                </div>
+            </div>
+        </div>
+        
+        <div style="border-top: 1px solid var(--border); padding-top: 24px;">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+    </form>
+    <div id="pricingMsg" class="auth-message" style="display:none; margin-top:16px;"></div>
+</div>
+
+<script>
+document.getElementById('pricingForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var fd = new FormData(this);
+    var data = {
+        starter_price: fd.get('starter_price') || '',
+        pro_price: fd.get('pro_price') || '',
+        stripe_price_starter: fd.get('stripe_price_starter') || '',
+        stripe_price_pro: fd.get('stripe_price_pro') || ''
+    };
+    
+    var btn = this.querySelector('button[type="submit"]');
+    var originalText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    fetch('{{ url_for("admin_pricing_save") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(data)
+    }).then(function(r) {
+        return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+    }).then(function(res) {
+        var el = document.getElementById('pricingMsg');
+        el.style.display = 'block';
+        if (!res.ok) {
+            el.textContent = res.data.error || 'Request failed';
+            el.className = 'auth-message auth-error';
+            return;
+        }
+        el.textContent = 'Pricing updated successfully.';
+        el.className = 'auth-message auth-success';
+        setTimeout(function() { el.style.display = 'none'; }, 3000);
+    }).catch(function() {
+        var el = document.getElementById('pricingMsg');
+        el.textContent = 'Network error. Try again.';
+        el.className = 'auth-message auth-error';
+        el.style.display = 'block';
+    }).finally(function() {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    });
+});
+</script>
+{% endblock %}

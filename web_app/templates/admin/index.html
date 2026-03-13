@@ -1,0 +1,56 @@
+{% extends "admin/base.html" %}
+{% block title %}Admin Panel{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<p class="admin-subtitle">Welcome to the AdsCompetitor Admin Panel.</p>
+
+<div class="admin-stats-grid">
+    <a href="{{ url_for('admin_users') }}" class="admin-stat-card">
+        <div class="admin-stat-icon">👥</div>
+        <div class="admin-stat-label">Users</div>
+        <div class="admin-stat-desc">Manage Firebase users</div>
+    </a>
+    <a href="{{ url_for('admin_subscriptions') }}" class="admin-stat-card">
+        <div class="admin-stat-icon">💳</div>
+        <div class="admin-stat-label">Plans</div>
+        <div class="admin-stat-desc">Manage subscriptions</div>
+    </a>
+    <a href="{{ url_for('admin_campaigns') }}" class="admin-stat-card">
+        <div class="admin-stat-icon">📢</div>
+        <div class="admin-stat-label">Campaigns</div>
+        <div class="admin-stat-desc">View campaign stats</div>
+    </a>
+    <a href="{{ url_for('admin_usage') }}" class="admin-stat-card">
+        <div class="admin-stat-icon">📊</div>
+        <div class="admin-stat-label">Usage</div>
+        <div class="admin-stat-desc">SMS & Email totals</div>
+    </a>
+    <a href="{{ url_for('admin_pricing') }}" class="admin-stat-card">
+        <div class="admin-stat-icon">💲</div>
+        <div class="admin-stat-label">Pricing</div>
+        <div class="admin-stat-desc">Update plan prices</div>
+    </a>
+</div>
+
+<div class="admin-card">
+    <h3 style="margin-bottom: 16px;">System Status</h3>
+    <ul class="admin-capabilities">
+        <li>
+            <span style="flex:1;">Firebase Auth</span>
+            <span class="admin-badge badge-green">Connected</span>
+        </li>
+        <li>
+            <span style="flex:1;">Firestore (Subscriptions)</span>
+            <span class="admin-badge badge-green">Connected</span>
+        </li>
+        <li>
+            <span style="flex:1;">PostgreSQL (Campaigns)</span>
+            {% if db_error %}
+            <span class="admin-badge badge-red">Error</span>
+            {% else %}
+            <span class="admin-badge badge-gray">Check Logs</span>
+            {% endif %}
+        </li>
+    </ul>
+</div>
+{% endblock %}

@@ -6,11 +6,12 @@ from typing import Optional, Dict, Any
 import logging
 
 # Optional imports for Redis/RQ
+# rq raises ValueError on Windows (no 'fork' multiprocessing context)
 try:
     import redis
     from rq import Queue
     REDIS_AVAILABLE = True
-except ImportError:
+except (ImportError, ValueError):
     REDIS_AVAILABLE = False
     redis = None
     Queue = None
@@ -27,7 +28,7 @@ def init_queue(redis_url: Optional[str] = None):
     global redis_conn, queue
     
     if not REDIS_AVAILABLE:
-        logger.warning("Redis/RQ packages not installed. Install with: pip install redis rq")
+        logger.debug("Redis/RQ not available — running without background queue")
         redis_conn = None
         queue = None
         return False

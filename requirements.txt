@@ -1,7 +1,7 @@
 # AdsCompetitor Project Requirements - Production
 # Note: Some dependencies are optional and the app will work without them
 
-# AI Generation Layer Dependencies
+# AI Generation Layer Dependencies (works on Python 3.8+)
 google-generativeai>=0.3.0
 
 # Notification Layer Dependencies (optional - app works without them)
@@ -11,6 +11,15 @@ sendgrid>=6.10.0
 # Web Framework (required)
 flask>=2.3.0
 flask-cors>=4.0.0
+
+# Firebase Authentication (optional - enables real login/signup)
+firebase-admin>=6.0.0
+
+# Stripe (required for paid plans - Starter/Pro)
+stripe>=7.0.0
+
+# Auto Marketing Mode (scheduled campaigns; pulls in tzlocal)
+apscheduler>=3.10.0,<4
 
 # For environment variable management
 python-dotenv>=1.0.0

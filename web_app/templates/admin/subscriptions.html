@@ -1,0 +1,118 @@
+{% extends "admin/base.html" %}
+{% block title %}Subscriptions{% endblock %}
+{% block content %}
+<h1>Manage Subscription Plans</h1>
+<p class="admin-subtitle">Update a user's plan or status below. Data is stored in Firestore.</p>
+{% if subscriptions %}
+<div class="admin-card">
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>Email</th>
+            <th>Plan</th>
+            <th>Status</th>
+            <th>Stripe Customer</th>
+            <th>Updated</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in subscriptions %}
+        <tr data-email="{{ s.get('id') or s.get('email','') }}">
+            <td><strong>{{ s.get('id') or s.get('email','') }}</strong></td>
+            <td class="plan-cell">
+                {% set plan = s.get('plan','') %}
+                <span class="admin-badge {{ 'badge-gray' if plan=='free' else 'badge-blue' if plan=='starter' else 'badge-purple' if plan=='pro' else 'badge-gray' }}">
+                    {{ plan|upper }}
+                </span>
+            </td>
+            <td class="status-cell">
+                {% set st = s.get('status','') %}
+                <span class="admin-badge {{ 'badge-green' if st=='active' else 'badge-red' if st=='cancelled' else 'badge-yellow' if st=='past_due' else 'badge-gray' }}">
+                    {{ st|replace('_', ' ')|capitalize }}
+                </span>
+            </td>
+            <td><code style="font-size:0.85rem; color:var(--text-muted);">{{ s.get('stripe_customer_id','') or '—' }}</code></td>
+            <td>{{ s.get('updated_at','').strftime('%Y-%m-%d') if s.get('updated_at') and s.get('updated_at').strftime else s.get('updated_at','') }}</td>
+            <td class="admin-actions">
+                <select class="admin-select plan-select">
+                    <option value="">Plan...</option>
+                    <option value="free">Free</option>
+                    <option value="starter">Starter</option>
+                    <option value="pro">Pro</option>
+                </select>
+                <select class="admin-select status-select">
+                    <option value="">Status...</option>
+                    <option value="active">Active</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="past_due">Past Due</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-secondary btn-admin-update">Update</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<div id="subMsg" class="auth-message" style="display:none; margin-top:12px;"></div>
+</div>
+{% else %}
+<div class="admin-card"><p class="admin-empty">No subscriptions in Firestore yet. Users appear here after they select a plan (Free or complete Stripe checkout).</p></div>
+{% endif %}
+<script>
+document.querySelectorAll('.btn-admin-update').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var row = this.closest('tr');
+        var email = row.getAttribute('data-email');
+        var planSelect = row.querySelector('.plan-select');
+        var statusSelect = row.querySelector('.status-select');
+        var plan = planSelect && planSelect.value ? planSelect.value : null;
+        var status = statusSelect && statusSelect.value ? statusSelect.value : null;
+        if (!plan && !status) {
+            document.getElementById('subMsg').textContent = 'Select plan or status to update';
+            document.getElementById('subMsg').className = 'auth-message auth-error';
+            document.getElementById('subMsg').style.display = 'block';
+            return;
+        }
+        fetch('{{ url_for("admin_subscriptions_update") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ email: email, plan: plan || undefined, status: status || undefined })
+        }).then(function(r) {
+            return r.json().then(function(data) {
+                return { ok: r.ok, data: data };
+            });
+        }).then(function(res) {
+            var data = res.data;
+            var msg = document.getElementById('subMsg');
+            msg.style.display = 'block';
+            if (!res.ok) {
+                msg.textContent = data.error || 'Request failed';
+                msg.className = 'auth-message auth-error';
+                return;
+            }
+            msg.textContent = data.error || 'Updated';
+            msg.className = 'auth-message ' + (data.error ? 'auth-error' : 'auth-success');
+            if (data.success) {
+                if (plan) {
+                    var cell = row.querySelector('.plan-cell');
+                    var badgeClass = plan === 'free' ? 'badge-gray' : plan === 'starter' ? 'badge-blue' : 'badge-purple';
+                    cell.innerHTML = '<span class="admin-badge ' + badgeClass + '">' + plan.toUpperCase() + '</span>';
+                }
+                if (status) {
+                    var cell = row.querySelector('.status-cell');
+                    var badgeClass = status === 'active' ? 'badge-green' : status === 'cancelled' ? 'badge-red' : status === 'past_due' ? 'badge-yellow' : 'badge-gray';
+                    cell.innerHTML = '<span class="admin-badge ' + badgeClass + '">' + status.replace('_',' ') + '</span>'; // simple cap
+                }
+                planSelect && (planSelect.value = '');
+                statusSelect && (statusSelect.value = '');
+            }
+        }).catch(function() {
+            document.getElementById('subMsg').textContent = 'Network error. Try again.';
+            document.getElementById('subMsg').className = 'auth-message auth-error';
+            document.getElementById('subMsg').style.display = 'block';
+        });
+    });
+});
+</script>
+{% endblock %}

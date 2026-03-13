@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing - AdsCompetitor</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container pricing-container">
+        <header class="pricing-header">
+            <h1>🎯 AdsCompetitor</h1>
+            <p class="subtitle">Simple, transparent pricing for every business</p>
+        </header>
+
+        <div class="pricing-grid">
+            <!-- FREE PLAN -->
+            <div class="pricing-card">
+                <div class="pricing-card-header">
+                    <h3>Free</h3>
+                    <div class="pricing-price"><span class="price-amount">$0</span><span class="price-period">/month</span></div>
+                    <p class="pricing-desc">Get started with basic ad generation</p>
+                </div>
+                <ul class="pricing-features">
+                    <li><strong>5</strong> AI ads per month</li>
+                    <li><strong>1</strong> campaign per month</li>
+                    <li><strong>20</strong> emails</li>
+                    <li><strong>10</strong> SMS</li>
+                    <li><strong>1</strong> ad variation</li>
+                    <li>Basic dashboard</li>
+                </ul>
+                <ul class="pricing-restrictions">
+                    <li>No competitor analysis</li>
+                    <li>No campaign scheduling</li>
+                    <li>No automation</li>
+                </ul>
+                <div class="pricing-cta">
+                    {% if logged_in %}<a href="{{ url_for('choose_plan') }}" class="btn btn-secondary btn-block">Get Free</a>
+                    {% else %}<a href="{{ url_for('signup') }}" class="btn btn-secondary btn-block">Get Free</a>{% endif %}
+                </div>
+            </div>
+
+            <!-- STARTER PLAN -->
+            <div class="pricing-card pricing-card-featured">
+                <div class="pricing-badge">Popular</div>
+                <div class="pricing-card-header">
+                    <h3>Starter</h3>
+                    <div class="pricing-price"><span class="price-amount">$49.99</span><span class="price-period">/month</span></div>
+                    <p class="pricing-desc">For growing teams and more campaigns</p>
+                </div>
+                <ul class="pricing-features">
+                    <li><strong>200</strong> AI ads per month</li>
+                    <li><strong>20</strong> campaigns per month</li>
+                    <li><strong>2,000</strong> emails per month</li>
+                    <li><strong>1,000</strong> SMS per month</li>
+                    <li>Competitor-based ad generation</li>
+                    <li><strong>5</strong> ad variations</li>
+                    <li>Campaign scheduling</li>
+                    <li>Analytics dashboard</li>
+                </ul>
+                <div class="pricing-cta">
+                    {% if logged_in %}<a href="{{ url_for('choose_plan') }}" class="btn btn-primary btn-block">Start Starter — Pay with Stripe</a>
+                    {% else %}<a href="{{ url_for('signup') }}" class="btn btn-primary btn-block">Start Starter</a>{% endif %}
+                </div>
+            </div>
+
+            <!-- PRO PLAN -->
+            <div class="pricing-card">
+                <div class="pricing-card-header">
+                    <h3>Pro</h3>
+                    <div class="pricing-price"><span class="price-amount">$97.99</span><span class="price-period">/month</span></div>
+                    <p class="pricing-desc">Unlimited scale and priority support</p>
+                </div>
+                <ul class="pricing-features">
+                    <li><strong>Unlimited</strong> AI ads</li>
+                    <li><strong>Unlimited</strong> campaigns</li>
+                    <li><strong>10,000</strong> emails per month</li>
+                    <li><strong>5,000</strong> SMS per month</li>
+                    <li>Competitor analysis dashboard</li>
+                    <li><strong>10</strong> ad variations</li>
+                    <li>Audience segmentation</li>
+                    <li>Advanced analytics</li>
+                    <li>Priority support</li>
+                </ul>
+                <div class="pricing-cta">
+                    {% if logged_in %}<a href="{{ url_for('choose_plan') }}" class="btn btn-primary btn-block">Go Pro — Pay with Stripe</a>
+                    {% else %}<a href="{{ url_for('signup') }}" class="btn btn-primary btn-block">Go Pro</a>{% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- USAGE-BASED BILLING -->
+        <div class="pricing-usage card">
+            <h2>Usage-based billing</h2>
+            <p class="step-subtitle">If you exceed your plan limits, we charge only for what you use:</p>
+            <div class="usage-grid">
+                <div class="usage-item">
+                    <span class="usage-label">Extra SMS</span>
+                    <span class="usage-price">$0.02 per message</span>
+                </div>
+                <div class="usage-item">
+                    <span class="usage-label">Extra Email</span>
+                    <span class="usage-price">$0.001 per email</span>
+                </div>
+                <div class="usage-item">
+                    <span class="usage-label">Extra AI ads</span>
+                    <span class="usage-price">$5 per 100 ads</span>
+                </div>
+            </div>
+        </div>
+
+        <p class="pricing-footer">
+            <a href="{{ url_for('login') }}">Log in</a> · <a href="{{ url_for('signup') }}">Sign up</a> · <a href="{{ url_for('index') }}">Back to home</a>
+        </p>
+    </div>
+</body>
+</html>

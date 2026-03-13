@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdsCompetitor - AI-Powered Ad Generation & Automation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="landing-nav">
+        <div class="nav-container">
+            <a href="{{ url_for('index') }}" class="nav-brand">
+                <span>🎯</span> AdsCompetitor
+            </a>
+            <div class="nav-links desktop-only">
+                <a href="#features">Features</a>
+                <a href="#how-it-works">How it Works</a>
+                <a href="{{ url_for('pricing') }}">Pricing</a>
+            </div>
+            <div class="nav-actions">
+                <a href="{{ url_for('login') }}" class="btn btn-link">Log in</a>
+                <a href="{{ url_for('signup') }}" class="btn btn-primary btn-sm">Get Started</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="hero-content">
+            <h1>Create High-Converting Ads <br><span class="highlight">Using Your Competitors' Data</span></h1>
+            <p class="hero-subtitle">
+                Spy on competitors, generate AI-optimized ad copy, and automate your SMS & email marketing campaigns in one platform.
+            </p>
+            <div class="hero-actions">
+                <a href="{{ url_for('signup') }}" class="btn btn-primary btn-large">Start Generating Ads Free</a>
+                <p class="hero-note">No credit card required for free plan</p>
+            </div>
+        </div>
+        <!-- Abstract Visual/Placeholder -->
+        <div class="hero-visual">
+            <div class="visual-card">
+                <div class="visual-header">
+                    <span class="dot red"></span>
+                    <span class="dot yellow"></span>
+                    <span class="dot green"></span>
+                </div>
+                <div class="visual-body">
+                    <div class="skeleton-line title"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line short"></div>
+                    <div class="skeleton-grid">
+                        <div class="skeleton-box"></div>
+                        <div class="skeleton-box"></div>
+                        <div class="skeleton-box"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features-section">
+        <div class="section-container">
+            <h2 class="section-title">Why AdsCompetitor?</h2>
+            <p class="section-subtitle">Everything you need to dominate your local market.</p>
+            
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🕵️</div>
+                    <h3>Competitor Intelligence</h3>
+                    <p>Enter a competitor's URL and instantly extract their brand voice, offer types, and ad strategies to leverage for your own campaigns.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">✨</div>
+                    <h3>AI Ad Generation</h3>
+                    <p>Powered by advanced AI models to generate dozens of high-performing headlines, ad copies, and CTAs tailored to your audience.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🚀</div>
+                    <h3>Automated Outreach</h3>
+                    <p>Connect with Twilio and SendGrid to instantly send your generated offers to your customer lists via SMS and Email.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Smart Analytics</h3>
+                    <p>Track open rates, click-through rates, and conversions to understand exactly what messaging works best for your business.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="steps-section">
+        <div class="section-container">
+            <h2 class="section-title">How It Works</h2>
+            <div class="steps-row">
+                <div class="step-item">
+                    <div class="step-num">1</div>
+                    <h3>Analyze</h3>
+                    <p>Input your competitor's info. We scan their digital presence to understand their strategy.</p>
+                </div>
+                <div class="step-item">
+                    <div class="step-num">2</div>
+                    <h3>Generate</h3>
+                    <p>Our AI creates optimized ad variations designed to outperform your competition.</p>
+                </div>
+                <div class="step-item">
+                    <div class="step-num">3</div>
+                    <h3>Launch</h3>
+                    <p>Select the best ads and launch your SMS or Email campaign instantly.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="cta-content">
+            <h2>Ready to scale your business?</h2>
+            <p>Join thousands of marketers using AdsCompetitor today.</p>
+            <a href="{{ url_for('signup') }}" class="btn btn-secondary btn-large">Get Started for Free</a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+        <div class="footer-container">
+            <div class="footer-col">
+                <div class="footer-brand">🎯 AdsCompetitor</div>
+                <p>AI-powered competitive intelligence and ad generation for modern businesses.</p>
+            </div>
+            <div class="footer-col">
+                <h4>Product</h4>
+                <a href="#features">Features</a>
+                <a href="{{ url_for('pricing') }}">Pricing</a>
+                <a href="{{ url_for('login') }}">Login</a>
+            </div>
+            <div class="footer-col">
+                <h4>Company</h4>
+                <a href="{{ url_for('about') }}">About Us</a>
+                <a href="{{ url_for('contact') }}">Contact</a>
+            </div>
+            <div class="footer-col">
+                <h4>Legal</h4>
+                <a href="{{ url_for('privacy') }}">Privacy Policy</a>
+                <a href="{{ url_for('terms') }}">Terms of Service</a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 AdsCompetitor. All rights reserved.</p>
+        </div>
+    </footer>
+</body>
+</html>

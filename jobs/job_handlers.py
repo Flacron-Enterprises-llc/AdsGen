@@ -21,21 +21,25 @@ from processing_layer import ProcessingLayer
 from notification_layer import NotificationLayer
 from notification_layer.models.notification_types import NotificationType
 
-# Database imports (optional)
+# Database imports (optional) replaced by Firestore Campaign Store
+try:
+    from web_app.campaign_store import create_campaign, log_send, increment_usage_stats
+    CAMPAIGN_STORE_AVAILABLE = True
+except ImportError:
+    CAMPAIGN_STORE_AVAILABLE = False
+    create_campaign = lambda d: None
+    log_send = lambda *a, **k: None
+    increment_usage_stats = lambda *a: None
+
+# Legacy DB imports (kept for compatibility if needed, but we prefer Firestore now)
 try:
     from database.db_manager import (
         CampaignDB, AdVariantDB, RecipientDB, SendDB, EventDB, is_db_available
     )
     DB_AVAILABLE = True
-except ImportError as e:
+except ImportError:
     DB_AVAILABLE = False
-    CampaignDB = None
-    AdVariantDB = None
-    RecipientDB = None
-    SendDB = None
-    EventDB = None
     is_db_available = lambda: False
-    print(f"Database module not available: {e}")
 
 
 # Simple in-memory cache (in production, use Redis)
@@ -48,10 +52,37 @@ def _cache_key(brand: str, competitor: str, zipcode: str, num_variations: int = 
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
+def _sanitize_competitor_name(raw: str) -> str:
+    """
+    If the user pasted a URL as the competitor name, extract the domain-based
+    business name.  Otherwise return the input unchanged.
+    """
+    from urllib.parse import urlparse
+    stripped = raw.strip()
+    # Detect URLs: starts with a scheme or looks like a domain/path
+    if stripped.startswith(('http://', 'https://', 'www.')):
+        try:
+            if not stripped.startswith(('http://', 'https://')):
+                stripped = 'https://' + stripped
+            parsed = urlparse(stripped)
+            domain = parsed.netloc or parsed.path.split('/')[0]
+            # Remove www. prefix
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            # Take the first label of the domain (e.g. "junaidjamshed" from "junaidjamshed.com")
+            business = domain.split('.')[0]
+            # Convert hyphens/underscores to spaces and title-case
+            business = business.replace('-', ' ').replace('_', ' ').title()
+            return business if business else stripped
+        except Exception:
+            return stripped
+    return stripped
+
+
 def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Background job to generate ads.
-    
+
     Args:
         data: Dictionary containing:
             - our_brand: Brand name
@@ -65,32 +96,38 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             - offer_type: Offer type (optional)
             - goal: Campaign goal (optional)
             - num_variations: Number of ad variations to generate (default: 3)
-    
+
     Returns:
         Dictionary with generated ads and metadata
     """
+    print("\n[STEP 2][generate_ads_job] ── START ─────────────────────")
     try:
         our_brand = data.get('our_brand', '')
-        competitor_name = data.get('competitor_name', '')
+        competitor_name = _sanitize_competitor_name(data.get('competitor_name', ''))
         zipcode = data.get('zipcode', '')
         hashtags = data.get('hashtags', [])
         num_variations = data.get('num_variations', 3)
+        print(f"[STEP 2] brand={our_brand!r}  competitor={competitor_name!r}  zipcode={zipcode!r}")
+        print(f"[STEP 2] hashtags={hashtags}  num_variations={num_variations}")
         
-        # Check cache (only if we have the exact number of variations)
+        # Check cache
         cache_key = _cache_key(our_brand, competitor_name, zipcode, num_variations)
+        print(f"[STEP 2] Cache key: {cache_key}")
         if cache_key in _cache:
             cached_result = _cache[cache_key]
             cached_ads = cached_result.get('ads', [])
-            # Only use cache if it has the right number of ads
             if len(cached_ads) == num_variations:
+                print(f"[STEP 2] ✓ Cache HIT — returning {len(cached_ads)} cached ads")
                 return {
                     'success': True,
                     'ads': cached_ads,
                     'count': len(cached_ads),
                     'cached': True
                 }
+        print(f"[STEP 2] Cache MISS — proceeding to generation")
         
-        # Gather competitor intelligence before generating ads
+        # Gather competitor intelligence
+        print(f"[STEP 2] Gathering competitor intelligence for: {competitor_name!r}")
         competitor_intel = {}
         try:
             from competitor_intelligence.scraper import CompetitorIntelligence
@@ -104,12 +141,16 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             
             if intel and intel.get('source') != 'none':
                 competitor_intel = intel
+                print(f"[STEP 2] ✓ Intelligence gathered from source={intel.get('source')!r}")
                 logger.info(f"Gathered competitor intelligence from {intel.get('source')} for {competitor_name}")
             else:
+                print(f"[STEP 2]   No intelligence found — proceeding with user-provided data")
                 logger.info(f"No competitor intelligence gathered for {competitor_name}, proceeding with provided data")
         except ImportError:
+            print("[STEP 2]   Competitor intelligence module not installed — skipping")
             logger.warning("Competitor intelligence module not available, skipping scraping")
         except Exception as e:
+            print(f"[STEP 2]   Intelligence scrape error (non-fatal): {e}")
             logger.warning(f"Error gathering competitor intelligence: {e}, proceeding with provided data")
         
         competitor_data = {
@@ -134,6 +175,7 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             competitor_data['intelligence_source'] = competitor_intel.get('source', 'none')
         
         # Process inputs through Input Layer
+        print("[STEP 2] Processing inputs through InputLayer…")
         input_layer = InputLayer()
         processed_results = []
         
@@ -151,10 +193,13 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             zip_result = input_layer.process_single(zipcode, InputType.ZIP_CODE)
             processed_results.append(zip_result.to_dict())
         
+        print(f"[STEP 2] InputLayer produced {len(processed_results)} processed items")
         # Build marketing context using Processing Layer
+        print("[STEP 2] Building marketing context via ProcessingLayer…")
         processing_layer = ProcessingLayer()
         marketing_context_obj = processing_layer.build_context(processed_results)
         marketing_context = marketing_context_obj.to_dict()
+        print("[STEP 2] ✓ Marketing context built")
         
         # Add business-specific information
         marketing_context["business"] = {
@@ -192,15 +237,18 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             hashtags = [hashtags]
         
         # Initialize AI layer
+        print("[STEP 2] Initialising AIGenerationLayer…")
         ai = AIGenerationLayer()
-        
+        print("[STEP 2] ✓ AIGenerationLayer ready")
+
         # Generate multiple ads using batch generation
         ads_list = []
-        
-        # Use optimized batch generation if available
+
+        print(f"[STEP 2] Generating {num_variations} ad variation(s) via Gemini…")
         try:
             # Try to generate multiple variations in one call
             generated_content = ai.generate_content(marketing_context)
+            print("[STEP 2] ✓ Gemini returned content for variation 1")
             
             # Create base ad from generated content
             user_hashtag_list = []
@@ -246,11 +294,11 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             ads_list.append(base_ad)
             
             for i in range(num_variations - 1):
-                # Small delay between variations (pro keys have higher limits, but still good to pace requests)
-                wait_time = 2  # Wait 2 seconds between ad variations
+                wait_time = 2
                 if i > 0:
-                    print(f"Waiting {wait_time}s before generating variation {i+2}/{num_variations}...")
+                    print(f"[STEP 2]   waiting {wait_time}s before variation {i+2}/{num_variations}…")
                     time.sleep(wait_time)
+                print(f"[STEP 2]   generating variation {i+2}/{num_variations}…")
                 
                 max_retries = 3
                 retry_count = 0
@@ -266,12 +314,12 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
                         if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
                             retry_count += 1
                             if retry_count < max_retries:
-                                wait_time = 10 * retry_count  # Exponential backoff: 10s, 20s, 30s
-                                print(f"Rate limit hit, waiting {wait_time}s before retry {retry_count}/{max_retries}")
+                                wait_time = 10 * retry_count
+                                print(f"[STEP 2]   Rate limit hit — waiting {wait_time}s (retry {retry_count}/{max_retries})")
                                 time.sleep(wait_time)
                                 continue
                             else:
-                                print(f"Rate limit exceeded after {max_retries} retries")
+                                print(f"[STEP 2] ✗ Rate limit exceeded after {max_retries} retries")
                                 raise
                         else:
                             # Not a rate limit error, don't retry
@@ -310,15 +358,16 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
                         'cta': cta_text or 'Learn More Today!',
                         'quality_score': generated_content.overall_quality.overall_score if hasattr(generated_content, 'overall_quality') else None
                     })
+                    print(f"[STEP 2] ✓ Variation {i+2} generated — headline: {headline_text[:60]!r}")
                 except Exception as e:
-                    print(f"Ad generation variation {i+1} failed after retries: {e}")
+                    print(f"[STEP 2] ✗ Variation {i+2} failed after retries: {e}")
                     import traceback
                     traceback.print_exc()
                     # Don't add fallback here - we'll create defaults at the end if needed
                     continue
                     
         except Exception as e:
-            print(f"Batch generation failed, falling back: {e}")
+            print(f"[STEP 2] ✗ Batch generation failed, falling back to individual calls: {e}")
             import traceback
             traceback.print_exc()
             # Fallback to individual generation or create default ads
@@ -368,8 +417,10 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
                     traceback.print_exc()
                     continue
         
+        print(f"[STEP 2] Ads generated so far: {len(ads_list)}/{num_variations}")
         # If no ads were generated, create default ads
         if not ads_list:
+            print("[STEP 2]   No AI ads produced — using fallback defaults")
             for i in range(num_variations):
                 ads_list.append({
                     'headline': f"{our_brand}: Better Than {competitor_name}" if i == 0 else f"Discover {our_brand} Today" if i == 1 else f"Experience {our_brand}",
@@ -392,12 +443,40 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
         # Limit to num_variations
         ads_list = ads_list[:num_variations]
         
+        print(f"[STEP 2] ✓ Final ads_list has {len(ads_list)} item(s)")
+        for idx, ad in enumerate(ads_list):
+            print(f"[STEP 2]   Ad {idx+1}: headline={ad['headline'][:60]!r}")
+
         # Cache the result
         _cache[cache_key] = {'ads': ads_list}
+        print("[STEP 2] Result cached")
         
-        # Save to database if available
+        # Save to Firestore (Campaign Store)
         campaign_id = None
-        if DB_AVAILABLE and is_db_available():
+        if CAMPAIGN_STORE_AVAILABLE:
+            try:
+                campaign_data = {
+                    'name': data.get('campaign_name', f"{our_brand} vs {competitor_name}"),
+                    'brand_name': our_brand,
+                    'competitor_name': competitor_name,
+                    'zipcode': zipcode,
+                    'industry': data.get('industry'),
+                    'audience_type': data.get('audience_type'),
+                    'offer_type': data.get('offer_type'),
+                    'goal': data.get('goal'),
+                    'scheduled_at': data.get('scheduled_at'), # ISO string or None
+                    'timezone': data.get('timezone'),
+                    'status': 'draft',
+                    'ads': ads_list,  # Store ads directly in campaign doc
+                    'user_email': data.get('user_email') # Ensure we pass this from the frontend/session
+                }
+                campaign_id = create_campaign(campaign_data)
+                print(f"[STEP 2] ✓ Saved campaign to Firestore: {campaign_id}")
+            except Exception as e:
+                print(f"[STEP 2] ✗ Failed to save to Firestore: {e}")
+
+        # Legacy DB save (optional, can be removed if fully migrating)
+        if not campaign_id and DB_AVAILABLE and is_db_available():
             try:
                 # Create campaign record
                 campaign_data = {
@@ -421,6 +500,17 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:
                 print(f"Warning: Failed to save to database: {e}")
         
+        # Increment usage (plan limits) when we created a new campaign
+        if campaign_id:
+            try:
+                from web_app.usage_limits import increment_usage
+                user_email = data.get('user_email', '').strip().lower()
+                if user_email:
+                    increment_usage(user_email, ai_ads=len(ads_list), campaigns=1)
+            except Exception as e:
+                print(f"[STEP 2] Usage increment error: {e}")
+
+        print("[STEP 2][generate_ads_job] ── END ─────────────────────\n")
         return {
             'success': True,
             'ads': ads_list,
@@ -428,8 +518,11 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
             'cached': False,
             'campaign_id': campaign_id
         }
-        
+
     except Exception as e:
+        import traceback
+        print(f"[STEP 2] ✗ FATAL error in generate_ads_job: {e}")
+        traceback.print_exc()
         return {
             'success': False,
             'error': str(e)
@@ -439,22 +532,27 @@ def generate_ads_job(data: Dict[str, Any]) -> Dict[str, Any]:
 def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Background job to send notifications (email/SMS).
-    
+
     Args:
         data: Dictionary containing:
             - campaign_id: Campaign ID (optional)
             - sms_users: List of SMS user dicts
             - email_users: List of email user dicts
             - ads: List of ad dictionaries to send
-    
+
     Returns:
         Dictionary with sending results
     """
+    print("\n[STEP 4][send_notifications_job] ── START ──────────────")
     try:
         campaign_id = data.get('campaign_id')
         sms_users = data.get('sms_users', [])
         email_users = data.get('email_users', [])
         ads = data.get('ads', [])
+        print(f"[STEP 4] campaign_id  = {campaign_id}")
+        print(f"[STEP 4] SMS users    = {[u.get('phone') for u in sms_users]}")
+        print(f"[STEP 4] Email users  = {[u.get('email') for u in email_users]}")
+        print(f"[STEP 4] Ads to send  = {len(ads)}")
         
         if not sms_users and not email_users:
             return {
@@ -468,7 +566,10 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
                 'error': 'No ads provided'
             }
         
-        # Get ad variant IDs from database if campaign_id is provided
+        # Get ad variant IDs (not strictly needed for Firestore, but good for tracking which ad was sent)
+        # In Firestore, ads are just in the campaign doc list. We can reference them by index or content.
+        
+        # Legacy DB logic for ad variants (optional)
         ad_variant_ids = {}
         recipient_ids = {}
         
@@ -522,14 +623,36 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:
                 print(f"Warning: Failed to save recipients to database: {e}")
         
-        notification = NotificationLayer()
-        
-        if notification is None:
+        print("[STEP 4] Initialising NotificationLayer…")
+        try:
+            notification = NotificationLayer()
+            print(f"[STEP 4] ✓ NotificationLayer ready — providers: {list(notification.providers.keys())}")
+        except Exception as e:
+            print(f"[STEP 4] ✗ NotificationLayer init failed: {e}")
             return {
                 'success': False,
-                'error': 'Notifications not configured'
+                'error': f'Notification service unavailable: {e}'
             }
-        
+
+        # Check that at least one required provider is available
+        missing = []
+        if sms_users and NotificationType.SMS not in notification.providers:
+            missing.append('SMS (Twilio credentials are missing or invalid)')
+            print(f"[STEP 4] ✗ SMS provider NOT available (Twilio not configured)")
+        elif sms_users:
+            print(f"[STEP 4] ✓ SMS provider available (Twilio)")
+        if email_users and NotificationType.EMAIL not in notification.providers:
+            missing.append('Email (SendGrid credentials are missing or invalid)')
+            print(f"[STEP 4] ✗ Email provider NOT available (SendGrid not configured)")
+        elif email_users:
+            print(f"[STEP 4] ✓ Email provider available (SendGrid)")
+        if missing:
+            return {
+                'success': False,
+                'error': f'Required notification providers not available: {", ".join(missing)}. '
+                         f'Please configure the credentials in your .env file.'
+            }
+
         results = {
             'sms_results': [],
             'email_results': [],
@@ -538,20 +661,36 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
         
         # Send SMS
         if sms_users and NotificationType.SMS in notification.providers:
+            print(f"\n[STEP 4] ── Sending SMS ──────────────────────────────")
             for ad_idx, ad in enumerate(ads):
                 sms_message = f"🎯 {ad['headline']}\n\n{ad['ad_text']}\n\n{ad['cta']}\n\nHashtags: {', '.join(ad['hashtags'])}"
-                
-                # Get ad variant ID if available
+                print(f"[STEP 4][SMS] Ad {ad_idx+1}/{len(ads)} → {len(sms_users)} recipient(s)")
+                print(f"[STEP 4][SMS] Message preview: {sms_message[:100]!r}…")
+
                 ad_variant_id = ad.get('id') or (ad_variant_ids.get(ad_idx) if ad_idx in ad_variant_ids else None)
-                
+
                 try:
                     sms_results = notification.send_to_user_list(
                         user_list=sms_users,
                         message_content=sms_message,
                         notification_type=NotificationType.SMS
                     )
+                    sent_ok = sum(1 for r in sms_results if (r.get('success') if isinstance(r, dict) else getattr(r, 'success', False)))
+                    print(f"[STEP 4][SMS] ✓ {sent_ok}/{len(sms_results)} sent successfully")
                     
-                    # Track sends in database
+                    # Track sends in Firestore
+                    if CAMPAIGN_STORE_AVAILABLE and campaign_id:
+                        try:
+                            for i, user in enumerate(sms_users):
+                                if i < len(sms_results):
+                                    result = sms_results[i]
+                                    status = 'sent' if (result.get('success') if isinstance(result, dict) else getattr(result, 'success', False)) else 'failed'
+                                    log_send(campaign_id, 'sms', status, user.get('phone', ''), ad)
+                                    increment_usage_stats('sms', status)
+                        except Exception as e:
+                            print(f"[STEP 4] ✗ Failed to log SMS send to Firestore: {e}")
+
+                    # Track sends in database (Legacy)
                     if campaign_id and DB_AVAILABLE and is_db_available() and ad_variant_id:
                         for i, user in enumerate(sms_users):
                             if i < len(sms_results):
@@ -574,17 +713,20 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
                     results['sms_results'].extend(sms_results)
                 except Exception as e:
                     error_msg = str(e)
+                    print(f"[STEP 4][SMS] ✗ Send failed for ad {ad_idx+1}: {error_msg}")
                     for user in sms_users:
                         results['sms_results'].append({
                             'success': False,
                             'error_message': error_msg,
                             'status': 'failed'
                         })
-        
+
         # Send Email
         if email_users and NotificationType.EMAIL in notification.providers:
+            print(f"\n[STEP 4] ── Sending Email ────────────────────────────")
             for ad_idx, ad in enumerate(ads):
                 email_subject = f"🎯 New Ad Campaign: {ad['headline']}"
+                print(f"[STEP 4][Email] Ad {ad_idx+1}/{len(ads)} subject={email_subject!r}")
                 email_content = f"""
                 <html>
                 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -612,6 +754,7 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
                 ad_variant_id = ad.get('id') or (ad_variant_ids.get(ad_idx) if ad_idx in ad_variant_ids else None)
                 
                 for user in email_users:
+                    print(f"[STEP 4][Email]   → sending to {user['email']!r}")
                     try:
                         email_result = notification.send_email(
                             to_email=user['email'],
@@ -619,8 +762,19 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
                             content=f"New Ad Campaign: {ad['headline']}\n\n{ad['ad_text']}\n\n{ad['cta']}",
                             html_content=email_content
                         )
+                        ok = email_result.get('success') if isinstance(email_result, dict) else getattr(email_result, 'success', False)
+                        print(f"[STEP 4][Email]   {'✓ sent' if ok else '✗ failed'}")
                         
-                        # Track send in database
+                        # Track send in Firestore
+                        if CAMPAIGN_STORE_AVAILABLE and campaign_id:
+                            try:
+                                status = 'sent' if ok else 'failed'
+                                log_send(campaign_id, 'email', status, user['email'], ad)
+                                increment_usage_stats('email', status)
+                            except Exception as e:
+                                print(f"[STEP 4] ✗ Failed to log Email send to Firestore: {e}")
+
+                        # Track send in database (Legacy)
                         if campaign_id and DB_AVAILABLE and is_db_available() and ad_variant_id:
                             recipient_id = recipient_ids.get(('email', user.get('email', '')))
                             if recipient_id:
@@ -694,13 +848,33 @@ def send_notifications_job(data: Dict[str, Any]) -> Dict[str, Any]:
             'total_sent': total_sms_sent + total_email_sent,
             'error_messages': error_messages if error_messages else []
         }
-        
+
+        # Increment usage (plan limits and overage)
+        try:
+            from web_app.usage_limits import increment_usage
+            user_email = data.get('user_email', '').strip().lower()
+            if user_email:
+                increment_usage(user_email, emails=total_email_sent, sms=total_sms_sent)
+        except Exception as e:
+            print(f"[STEP 4] Usage increment error: {e}")
+
+        print(f"\n[STEP 4] ── SUMMARY ─────────────────────────────────")
+        print(f"[STEP 4]   SMS   : {total_sms_sent}/{len(results['sms_results'])} sent")
+        print(f"[STEP 4]   Email : {total_email_sent}/{len(results['email_results'])} sent")
+        if error_messages:
+            for err in error_messages:
+                print(f"[STEP 4]   Error : {err}")
+        print("[STEP 4][send_notifications_job] ── END ──────────────\n")
+
         return {
             'success': True,
             'results': results
         }
-        
+
     except Exception as e:
+        import traceback
+        print(f"[STEP 4] ✗ FATAL error in send_notifications_job: {e}")
+        traceback.print_exc()
         return {
             'success': False,
             'error': str(e)

@@ -1,0 +1,198 @@
+{% extends "admin/base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Manage Users</h1>
+<p class="admin-subtitle">Firebase Authentication users. Disable, enable, delete, or generate a password reset link.</p>
+{% if users and users[0] and users[0].get('error') %}
+<div class="admin-card"><p class="auth-message auth-error">{{ users[0].error }}</p></div>
+{% elif users %}
+<div class="admin-card">
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>UID</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr data-uid="{{ u.get('uid', '') }}" data-email="{{ u.get('email', '') }}">
+            <td><code class="admin-uid">{{ u.get('uid', '') }}</code></td>
+            <td>{{ u.get('email', '') }}</td>
+            <td>
+                {% if u.get('disabled') %}
+                <span class="admin-badge badge-red">Disabled</span>
+                {% else %}
+                <span class="admin-badge badge-green">Active</span>
+                {% endif %}
+            </td>
+            <td>{{ u.get('created_at', '') }}</td>
+            <td class="admin-user-actions">
+                {% if u.get('disabled') %}
+                <button type="button" class="btn btn-sm btn-primary btn-user-enable" data-uid="{{ u.get('uid', '') }}">Enable</button>
+                {% else %}
+                <button type="button" class="btn btn-sm btn-secondary btn-user-disable" data-uid="{{ u.get('uid', '') }}">Disable</button>
+                {% endif %}
+                <button type="button" class="btn btn-sm btn-secondary btn-user-reset" data-email="{{ u.get('email', '') }}" title="Get password reset link">Reset Link</button>
+                <button type="button" class="btn btn-sm btn-user-delete" data-uid="{{ u.get('uid', '') }}" data-email="{{ u.get('email', '') }}">Delete</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<div id="userMsg" class="auth-message" style="display:none; margin-top:12px;"></div>
+</div>
+
+<div id="resetLinkModal" class="admin-modal" style="display:none;" aria-hidden="true">
+    <div class="admin-modal-backdrop"></div>
+    <div class="admin-modal-content card">
+        <h3 style="margin-bottom:12px;">Password reset link</h3>
+        <p class="admin-subtitle" style="margin-bottom:12px;">Send this link to the user so they can set a new password.</p>
+        <input type="text" id="resetLinkInput" readonly class="admin-modal-input" style="width:100%; padding:10px; margin-bottom:12px; font-size:0.9rem;">
+        <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-primary" id="copyResetLink">Copy link</button>
+            <button type="button" class="btn btn-secondary" id="closeResetLinkModal">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="deleteConfirmModal" class="admin-modal" style="display:none;" aria-hidden="true">
+    <div class="admin-modal-backdrop"></div>
+    <div class="admin-modal-content card">
+        <h3 style="margin-bottom:12px;">Delete user?</h3>
+        <p class="admin-subtitle" id="deleteConfirmEmail" style="margin-bottom:16px;"></p>
+        <p class="auth-message auth-error" style="margin-bottom:16px;">This cannot be undone. The user will need to sign up again.</p>
+        <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-primary" id="deleteConfirmBtn">Delete</button>
+            <button type="button" class="btn btn-secondary" id="deleteCancelBtn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.admin-uid { font-family: monospace; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-body); padding: 4px 8px; border-radius: 4px; }
+.admin-badge { margin-right: 8px; }
+.admin-user-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn-user-delete { background: #FEF2F2; color: var(--error); border: 1px solid #FECACA; }
+.btn-user-delete:hover { background: var(--error); color: white; }
+.admin-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.admin-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(2px); }
+.admin-modal-content { position: relative; max-width: 520px; width: 100%; z-index: 10; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.admin-modal-input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.95rem; margin-bottom: 16px; background: var(--bg-body); }
+.admin-modal-input:focus { outline: none; border-color: var(--primary); background: white; }
+</style>
+
+<script>
+(function() {
+    var userMsg = document.getElementById('userMsg');
+    function showMsg(text, isError) {
+        userMsg.textContent = text;
+        userMsg.className = 'auth-message ' + (isError ? 'auth-error' : 'auth-success');
+        userMsg.style.display = 'block';
+    }
+
+    function fetchPost(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body)
+        }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); });
+    }
+
+    document.querySelectorAll('.btn-user-disable').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var uid = this.getAttribute('data-uid');
+            fetchPost('{{ url_for("admin_user_disable") }}', { uid: uid }).then(function(res) {
+                if (res.ok && res.data.success) {
+                    showMsg('User disabled.');
+                    window.location.reload();
+                } else {
+                    showMsg(res.data.error || 'Failed', true);
+                }
+            }).catch(function() { showMsg('Network error.', true); });
+        });
+    });
+    document.querySelectorAll('.btn-user-enable').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var uid = this.getAttribute('data-uid');
+            fetchPost('{{ url_for("admin_user_enable") }}', { uid: uid }).then(function(res) {
+                if (res.ok && res.data.success) {
+                    showMsg('User enabled.');
+                    window.location.reload();
+                } else {
+                    showMsg(res.data.error || 'Failed', true);
+                }
+            }).catch(function() { showMsg('Network error.', true); });
+        });
+    });
+    document.querySelectorAll('.btn-user-reset').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var email = this.getAttribute('data-email');
+            if (!email) return;
+            fetchPost('{{ url_for("admin_user_password_reset_link") }}', { email: email }).then(function(res) {
+                if (res.ok && res.data.success && res.data.link) {
+                    var modal = document.getElementById('resetLinkModal');
+                    document.getElementById('resetLinkInput').value = res.data.link;
+                    modal.style.display = 'flex';
+                    modal.setAttribute('aria-hidden', 'false');
+                } else {
+                    showMsg(res.data.error || 'Failed to generate link', true);
+                }
+            }).catch(function() { showMsg('Network error.', true); });
+        });
+    });
+    document.getElementById('copyResetLink').addEventListener('click', function() {
+        var input = document.getElementById('resetLinkInput');
+        input.select();
+        document.execCommand('copy');
+        showMsg('Link copied to clipboard.');
+    });
+    document.getElementById('closeResetLinkModal').addEventListener('click', function() {
+        document.getElementById('resetLinkModal').style.display = 'none';
+        document.getElementById('resetLinkModal').setAttribute('aria-hidden', 'true');
+    });
+    document.querySelector('#resetLinkModal .admin-modal-backdrop').addEventListener('click', function() {
+        document.getElementById('closeResetLinkModal').click();
+    });
+
+    var deleteUid = null;
+    document.querySelectorAll('.btn-user-delete').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            deleteUid = this.getAttribute('data-uid');
+            document.getElementById('deleteConfirmEmail').textContent = 'Delete user: ' + (this.getAttribute('data-email') || deleteUid) + '?';
+            document.getElementById('deleteConfirmModal').style.display = 'flex';
+            document.getElementById('deleteConfirmModal').setAttribute('aria-hidden', 'false');
+        });
+    });
+    document.getElementById('deleteCancelBtn').addEventListener('click', function() {
+        document.getElementById('deleteConfirmModal').style.display = 'none';
+        deleteUid = null;
+    });
+    document.querySelector('#deleteConfirmModal .admin-modal-backdrop').addEventListener('click', function() {
+        document.getElementById('deleteCancelBtn').click();
+    });
+    document.getElementById('deleteConfirmBtn').addEventListener('click', function() {
+        if (!deleteUid) return;
+        fetchPost('{{ url_for("admin_user_delete") }}', { uid: deleteUid }).then(function(res) {
+            document.getElementById('deleteConfirmModal').style.display = 'none';
+            deleteUid = null;
+            if (res.ok && res.data.success) {
+                showMsg('User deleted.');
+                window.location.reload();
+            } else {
+                showMsg(res.data.error || 'Failed to delete', true);
+            }
+        }).catch(function() {
+            showMsg('Network error.', true);
+        });
+    });
+})();
+</script>
+{% else %}
+<div class="admin-card"><p class="admin-empty">No users found, or Firebase is not configured. Set FIREBASE_CREDENTIALS_PATH and ensure the service account has &quot;Authentication Admin&quot; role.</p></div>
+{% endif %}
+{% endblock %}

@@ -1664,6 +1664,180 @@ function showAdPreview(adIndex, channel) {
     }, 10);
 }
 
+// ── Single Sender Verification ───────────────────────────────────────────────
+
+// Toggle the verification panel open / closed
+function toggleSenderPanel() {
+    const body   = document.getElementById('senderVerifyBody');
+    const toggle = document.getElementById('senderPanelToggle');
+    if (!body) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display   = isOpen ? 'none' : 'block';
+    toggle.textContent   = isOpen ? '▼' : '▲';
+}
+
+// Show / hide advanced address fields
+function toggleSenderAdvanced() {
+    const adv    = document.getElementById('senderAdvanced');
+    const btn    = document.getElementById('senderAdvancedToggle');
+    if (!adv) return;
+    const isOpen = adv.style.display !== 'none';
+    adv.style.display = isOpen ? 'none' : 'block';
+    btn.textContent   = isOpen
+        ? '⚙️ Advanced options (address, reply-to)'
+        : '⚙️ Hide advanced options';
+}
+
+// Reset badge when the email field changes
+function onSenderEmailChange() {
+    _setSenderBadge('unknown', 'Not checked');
+    _hideSenderStatus();
+    const recheck = document.getElementById('recheckSenderBtn');
+    if (recheck) recheck.style.display = 'none';
+}
+
+// Check whether the entered email is already a verified sender
+async function checkSenderStatus() {
+    const email = (document.getElementById('senderEmail')?.value || '').trim();
+    if (!email) {
+        _showSenderStatus('Please enter an email address first.', 'error');
+        return;
+    }
+
+    _setSenderBadge('checking', 'Checking…');
+    _hideSenderStatus();
+
+    try {
+        const res  = await fetch(`/api/sendgrid/sender-status?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+
+        if (!data.success) {
+            _setSenderBadge('unknown', 'Error');
+            _showSenderStatus('Could not check status: ' + data.error, 'error');
+            return;
+        }
+
+        if (!data.found) {
+            _setSenderBadge('unverified', 'Not registered');
+            _showSenderStatus(
+                `${email} is not yet registered as a sender. Click "Send Verification Email" to begin.`,
+                'warning'
+            );
+        } else if (data.verified) {
+            _setSenderBadge('verified', 'Verified ✓');
+            _showSenderStatus(
+                `✅ ${email} is verified and ready to send emails.`,
+                'success'
+            );
+        } else {
+            _setSenderBadge('pending', 'Pending');
+            _showSenderStatus(
+                `⏳ Verification email was sent to ${email} but not yet confirmed. Check your inbox.`,
+                'warning'
+            );
+            document.getElementById('recheckSenderBtn').style.display = 'inline-block';
+        }
+    } catch (err) {
+        _setSenderBadge('unknown', 'Error');
+        _showSenderStatus('Network error: ' + err.message, 'error');
+    }
+}
+
+// Request SendGrid to send a verification email to the entered address
+async function verifySender() {
+    const email    = (document.getElementById('senderEmail')?.value || '').trim();
+    const name     = (document.getElementById('senderName')?.value || '').trim();
+    const address  = (document.getElementById('senderAddress')?.value || '').trim();
+    const city     = (document.getElementById('senderCity')?.value || '').trim();
+    const state    = (document.getElementById('senderState')?.value || '').trim();
+    const zip      = (document.getElementById('senderZip')?.value || '').trim();
+    const country  = (document.getElementById('senderCountry')?.value || '').trim();
+    const replyTo  = (document.getElementById('senderReplyTo')?.value || '').trim();
+
+    if (!email) {
+        _showSenderStatus('Please enter an email address first.', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('verifySenderBtn');
+    const btnText   = btn?.querySelector('.btn-text');
+    const btnLoader = btn?.querySelector('.btn-loader');
+    if (btnText)   btnText.style.display   = 'none';
+    if (btnLoader) btnLoader.style.display = 'inline-block';
+    if (btn)       btn.disabled            = true;
+
+    _setSenderBadge('checking', 'Sending…');
+    _hideSenderStatus();
+
+    try {
+        const res  = await fetch('/api/sendgrid/verify-sender', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email,
+                name:     name || email,
+                nickname: name || email,
+                reply_to: replyTo || email,
+                address:  address || '123 Main St',
+                city:     city    || 'City',
+                state:    state,
+                zip:      zip,
+                country:  country || 'US'
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            if (data.verified) {
+                _setSenderBadge('verified', 'Verified ✓');
+                _showSenderStatus('✅ ' + data.message, 'success');
+            } else if (data.already_exists) {
+                _setSenderBadge('pending', 'Pending');
+                _showSenderStatus('⏳ ' + data.message, 'warning');
+                document.getElementById('recheckSenderBtn').style.display = 'inline-block';
+            } else {
+                _setSenderBadge('pending', 'Email sent');
+                _showSenderStatus('✉️ ' + data.message, 'success');
+                document.getElementById('recheckSenderBtn').style.display = 'inline-block';
+            }
+        } else {
+            _setSenderBadge('unverified', 'Failed');
+            _showSenderStatus('❌ ' + (data.error || 'Verification request failed.'), 'error');
+        }
+    } catch (err) {
+        _setSenderBadge('unknown', 'Error');
+        _showSenderStatus('Network error: ' + err.message, 'error');
+    } finally {
+        if (btnText)   btnText.style.display   = 'inline-block';
+        if (btnLoader) btnLoader.style.display  = 'none';
+        if (btn)       btn.disabled             = false;
+    }
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+function _setSenderBadge(state, text) {
+    const badge = document.getElementById('senderVerifyBadge');
+    if (!badge) return;
+    badge.textContent = text;
+    badge.className = 'sender-badge sender-badge-' + state;
+}
+
+function _showSenderStatus(msg, type) {
+    const el = document.getElementById('senderStatusMsg');
+    if (!el) return;
+    el.textContent  = msg;
+    el.className    = 'sender-status-msg sender-status-' + type;
+    el.style.display = 'block';
+}
+
+function _hideSenderStatus() {
+    const el = document.getElementById('senderStatusMsg');
+    if (el) el.style.display = 'none';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupRealTimeValidation();

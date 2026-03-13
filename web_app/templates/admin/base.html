@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Admin Panel{% endblock %} - AdsCompetitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="admin-nav">
+        <span class="admin-panel-title">ADMIN PANEL</span>
+        <a href="{{ url_for('admin_index') }}" class="{{ 'active' if request.path == '/admin' or request.path == '/admin/' else '' }}">Overview</a>
+        <a href="{{ url_for('admin_users') }}" class="{{ 'active' if request.path == '/admin/users' else '' }}">Users</a>
+        <a href="{{ url_for('admin_subscriptions') }}" class="{{ 'active' if request.path == '/admin/subscriptions' else '' }}">Plans</a>
+        <a href="{{ url_for('admin_campaigns') }}" class="{{ 'active' if request.path == '/admin/campaigns' else '' }}">Campaigns</a>
+        <a href="{{ url_for('admin_usage') }}" class="{{ 'active' if request.path == '/admin/usage' else '' }}">SMS & Email</a>
+        <a href="{{ url_for('admin_pricing') }}" class="{{ 'active' if request.path == '/admin/pricing' else '' }}">Pricing</a>
+        <div class="admin-nav-right">
+            <a href="{{ url_for('dashboard') }}" class="btn-open-app">Open App</a>
+            <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
+        </div>
+    </nav>
+    <div class="admin-body">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

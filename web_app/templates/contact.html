@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact Us - AdsCompetitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container" style="max-width: 600px; padding: 60px 20px;">
+        <header style="text-align: center; margin-bottom: 40px; border: none; padding: 0;">
+            <a href="{{ url_for('index') }}" class="btn btn-link">&larr; Back to Home</a>
+            <h1>Contact Us</h1>
+            <p class="subtitle">We'd love to hear from you. Fill out the form below.</p>
+        </header>
+        
+        <div class="card" style="padding: 40px;">
+            <form>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" placeholder="Your name" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" placeholder="you@example.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Message</label>
+                    <textarea placeholder="How can we help?" style="min-height: 150px;" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Send Message</button>
+            </form>
+            <div style="margin-top: 30px; text-align: center; font-size: 0.9em; color: #666;">
+                <p>Or email us directly at <a href="mailto:support@adscompetitor.com">support@adscompetitor.com</a></p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
