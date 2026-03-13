@@ -83,7 +83,7 @@ try:
 except Exception as e:
     print(f"Firebase Admin not initialized (optional): {e}")
 
-# Subscription store (SQLite) for plan gating
+# Subscription store (Firestore) for plan gating
 try:
     from .subscription_store import (
         init_subscription_store,

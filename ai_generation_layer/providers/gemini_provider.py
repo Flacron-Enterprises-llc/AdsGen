@@ -22,7 +22,7 @@ class GeminiProvider(BaseLLMProvider):
         Args:
             config: Configuration dictionary with options:
                 - api_key: Gemini API key (can be from env GEMINI_API_KEY)
-                - model_name: Model name (default: "gemini-1.5-flash")
+                - model_name: Model name (default: "gemini-2.0-flash")
                 - temperature: Temperature for generation (default: 0.7)
                 - max_output_tokens: Maximum output tokens (default: 2048)
         """
