@@ -73,13 +73,26 @@ def get_firebase_config():
     }
 
 # Initialize Firebase Admin SDK for server-side token verification (optional)
+# On Render/Heroku: use FIREBASE_CREDENTIALS_JSON (paste the whole service account JSON as one line).
 _firebase_app = None
 try:
-    cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', '') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
-    if cred_path and Path(cred_path).exists():
-        import firebase_admin
-        from firebase_admin import credentials
-        _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_path))
+    import firebase_admin
+    from firebase_admin import credentials
+    # Option 1: JSON string in env (for Render, Heroku, etc. where you can't upload a file)
+    cred_json = os.getenv('FIREBASE_CREDENTIALS_JSON', '').strip()
+    if cred_json:
+        try:
+            cred_dict = json.loads(cred_json)
+            _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_dict))
+            print("Firebase Admin initialized from FIREBASE_CREDENTIALS_JSON")
+        except Exception as e:
+            print(f"Firebase Admin (FIREBASE_CREDENTIALS_JSON) failed: {e}")
+    # Option 2: File path (for local dev)
+    if _firebase_app is None:
+        cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', '') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
+        if cred_path and Path(cred_path).exists():
+            _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_path))
+            print("Firebase Admin initialized from credentials file")
 except Exception as e:
     print(f"Firebase Admin not initialized (optional): {e}")
 
