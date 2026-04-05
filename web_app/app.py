@@ -72,29 +72,40 @@ def get_firebase_config():
         'appId': os.getenv('FIREBASE_APP_ID', ''),
     }
 
-# Initialize Firebase Admin SDK for server-side token verification (optional)
-# On Render/Heroku: use FIREBASE_CREDENTIALS_JSON (paste the whole service account JSON as one line).
+# ====================== IMPROVED FIREBASE INITIALIZATION ======================
 _firebase_app = None
 try:
     import firebase_admin
     from firebase_admin import credentials
-    # Option 1: JSON string in env (for Render, Heroku, etc. where you can't upload a file)
+
+    # Option 1: JSON string from environment (Azure, IBM Cloud, Render)
     cred_json = os.getenv('FIREBASE_CREDENTIALS_JSON', '').strip()
     if cred_json:
         try:
+            # Critical fix: Convert escaped newlines back to real newlines
+            cred_json = cred_json.replace('\\n', '\n')
             cred_dict = json.loads(cred_json)
             _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_dict))
-            print("Firebase Admin initialized from FIREBASE_CREDENTIALS_JSON")
+                       print("✅ Firebase Admin initialized successfully from FIREBASE_CREDENTIALS_JSON (Cloud)")
         except Exception as e:
-            print(f"Firebase Admin (FIREBASE_CREDENTIALS_JSON) failed: {e}")
-    # Option 2: File path (for local dev)
+            print(f"❌ Firebase Admin (FIREBASE_CREDENTIALS_JSON) failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # Option 2: Local file path (for development only)
     if _firebase_app is None:
         cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', '') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
         if cred_path and Path(cred_path).exists():
             _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_path))
-            print("Firebase Admin initialized from credentials file")
+            print("✅ Firebase Admin initialized from local credentials file")
+        else:
+            print("⚠️ No valid Firebase credentials found (neither JSON nor local file)")
+
 except Exception as e:
-    print(f"Firebase Admin not initialized (optional): {e}")
+    print(f"❌ Firebase Admin initialization error: {e}")
+    import traceback
+    traceback.print_exc()
+# ============================================================================
 
 # Subscription store (Firestore) for plan gating
 try:
