@@ -16,7 +16,8 @@ try:
     # Load .env file from project root
     env_path = Path(__file__).parent.parent / '.env'
     if env_path.exists():
-        load_dotenv(env_path)
+        # override=True: local .env wins over empty/stale OS env vars (e.g. FIREBASE_CREDENTIALS_JSON).
+        load_dotenv(env_path, override=True)
         print(f"Loaded environment variables from: {env_path}")
 except ImportError:
     # dotenv not installed, will use system environment variables
@@ -58,6 +59,20 @@ app = Flask(__name__,
 app.secret_key = os.getenv('SECRET_KEY', 'adscompetitor-secret-key-change-in-production')
 CORS(app)
 
+# Reverse proxies (Render, Railway, Heroku) terminate TLS; without this, request.url_root is http://… internally.
+if os.getenv('TRUST_PROXY_HEADERS', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+def _public_base_url():
+    """Canonical public origin for Stripe return URLs (https in production)."""
+    base = (os.getenv('PUBLIC_APP_URL') or os.getenv('APP_BASE_URL') or '').strip().rstrip('/')
+    if base:
+        return base
+    return request.url_root.rstrip('/')
+
+
 # Firebase client config (for login/signup pages). Server verification uses firebase_admin.
 def get_firebase_config():
     api_key = os.getenv('FIREBASE_API_KEY', '')
@@ -72,40 +87,90 @@ def get_firebase_config():
         'appId': os.getenv('FIREBASE_APP_ID', ''),
     }
 
-# ====================== IMPROVED FIREBASE INITIALIZATION ======================
+def _normalize_credentials_path(raw: str) -> str:
+    """Strip whitespace and surrounding quotes from .env paths (common misconfiguration)."""
+    if not raw:
+        return ''
+    s = raw.strip()
+    if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
+        s = s[1:-1]
+    return s.strip()
+
+
+# Initialize Firebase Admin SDK for server-side token verification (optional)
+# On Render/Heroku: use FIREBASE_CREDENTIALS_JSON (paste the whole service account JSON as one line).
 _firebase_app = None
 try:
     import firebase_admin
     from firebase_admin import credentials
 
-    # Option 1: JSON string from environment (Azure, IBM Cloud, Render)
-    cred_json = os.getenv('FIREBASE_CREDENTIALS_JSON', '').strip()
+    def _attach_firebase_app(app_obj):
+        global _firebase_app
+        _firebase_app = app_obj
+
+    def _firebase_init_certificate(cred_arg, label: str):
+        """cred_arg is a dict or path string; Certificate() accepts both."""
+        try:
+            app_obj = firebase_admin.initialize_app(credentials.Certificate(cred_arg))
+            print(f"Firebase Admin initialized from {label}")
+            return app_obj
+        except ValueError as e:
+            err = str(e).lower()
+            if "already exists" in err or "already been initialized" in err:
+                existing = firebase_admin.get_app()
+                print(f"Firebase Admin: reusing existing default app ({label})")
+                return existing
+            raise
+
+    def _parse_service_account_json(raw: str):
+        """Parse JSON; retry with literal \\n -> newline for some PaaS env encodings."""
+        raw = raw.strip()
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return json.loads(raw.replace("\\n", "\n"))
+
+    # Option 1: JSON string in env (Render, Azure, IBM Cloud, etc.)
+    cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
     if cred_json:
         try:
-            # Critical fix: Convert escaped newlines back to real newlines
-            cred_json = cred_json.replace('\\n', '\n')
-            cred_dict = json.loads(cred_json)
-            _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_dict))
-                       print("✅ Firebase Admin initialized successfully from FIREBASE_CREDENTIALS_JSON (Cloud)")
+            cred_dict = _parse_service_account_json(cred_json)
+            _attach_firebase_app(_firebase_init_certificate(cred_dict, "FIREBASE_CREDENTIALS_JSON"))
         except Exception as e:
-            print(f"❌ Firebase Admin (FIREBASE_CREDENTIALS_JSON) failed: {e}")
+            print(f"Firebase Admin (FIREBASE_CREDENTIALS_JSON) failed: {e}")
             import traceback
             traceback.print_exc()
 
-    # Option 2: Local file path (for development only)
+    # Option 2: File path (local dev)
     if _firebase_app is None:
-        cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', '') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
-        if cred_path and Path(cred_path).exists():
-            _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_path))
-            print("✅ Firebase Admin initialized from local credentials file")
-        else:
-            print("⚠️ No valid Firebase credentials found (neither JSON nor local file)")
-
+        cred_path = _normalize_credentials_path(
+            os.getenv("FIREBASE_CREDENTIALS_PATH", "") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+        )
+        if cred_path:
+            p = Path(cred_path)
+            if p.is_file():
+                try:
+                    _attach_firebase_app(_firebase_init_certificate(str(p.resolve()), "FIREBASE_CREDENTIALS_PATH"))
+                except Exception as e:
+                    print(f"Firebase Admin (credentials file) failed: {e}")
+            else:
+                print(
+                    "Firebase Admin: credentials file not found at FIREBASE_CREDENTIALS_PATH / "
+                    f"GOOGLE_APPLICATION_CREDENTIALS: {p.resolve()}\n"
+                    "  Fix: download the service account JSON from Firebase Console (Project settings > "
+                    "Service accounts > Generate new private key), save it, and set FIREBASE_CREDENTIALS_PATH "
+                    "to that file (or set FIREBASE_CREDENTIALS_JSON to the JSON contents)."
+                )
+    if _firebase_app is None:
+        try:
+            _attach_firebase_app(firebase_admin.get_app())
+            print("Firebase Admin: attached via get_app() (already initialized in this process)")
+        except ValueError:
+            pass
 except Exception as e:
-    print(f"❌ Firebase Admin initialization error: {e}")
+    print(f"Firebase Admin not initialized (optional): {e}")
     import traceback
     traceback.print_exc()
-# ============================================================================
 
 # Subscription store (Firestore) for plan gating
 try:
@@ -127,7 +192,7 @@ except Exception as e:
     has_active_plan = lambda email: False
     get_subscription = lambda email: None
     def set_plan(email, plan, stripe_customer_id=None, stripe_subscription_id=None):
-        pass
+        return False
     list_all_subscriptions = lambda: []
     list_all_campaigns = lambda: []
     get_usage_stats = lambda: {'sms': 0, 'email': 0, 'sms_sent': 0, 'email_sent': 0}
@@ -393,8 +458,9 @@ def create_checkout_session():
     if not secret or not price_id:
         return jsonify({'error': 'Stripe not configured. Set STRIPE_SECRET_KEY and STRIPE_PRICE_STARTER/STRIPE_PRICE_PRO in .env'}), 503
     email = (session.get('user_email') or '').strip().lower()
-    success_url = (os.getenv('STRIPE_SUCCESS_URL') or '').strip() or (request.url_root.rstrip('/') + '/payment-success')
-    cancel_url = (os.getenv('STRIPE_CANCEL_URL') or '').strip() or (request.url_root.rstrip('/') + '/choose-plan')
+    base = _public_base_url()
+    success_url = (os.getenv('STRIPE_SUCCESS_URL') or '').strip() or (base + '/payment-success')
+    cancel_url = (os.getenv('STRIPE_CANCEL_URL') or '').strip() or (base + '/choose-plan')
     try:
         import stripe
         stripe.api_key = secret
@@ -422,9 +488,13 @@ def create_checkout_session():
 def select_free_plan():
     """Mark current user as on Free plan. Requires login."""
     if not session.get('logged_in'):
-        return jsonify({'error': 'Login required'}), 401
+        return jsonify({'success': False, 'error': 'Login required'}), 401
     email = (session.get('user_email') or '').strip().lower()
-    set_plan(email, 'free')
+    if not set_plan(email, 'free'):
+        return jsonify({
+            'success': False,
+            'error': 'Could not save your plan. Enable Firestore and ensure Firebase Admin credentials are set (FIREBASE_CREDENTIALS_JSON or FIREBASE_CREDENTIALS_PATH).',
+        }), 503
     return jsonify({'success': True, 'redirect': '/dashboard'})
 
 
@@ -1200,11 +1270,12 @@ def get_status():
 
 
 if __name__ == '__main__':
+    port = int(os.getenv('PORT', 5001))
     print("=" * 60)
     print("AdsCompetitor Web Application")
     print("=" * 60)
     print("\nStarting server...")
-    print("Open your browser to: http://localhost:5000")
+    print(f"Open your browser to: http://127.0.0.1:{port}")
     print("\nPress Ctrl+C to stop the server")
     print("=" * 60)
     try:
@@ -1212,5 +1283,4 @@ if __name__ == '__main__':
         start_scheduler()
     except Exception as e:
         print("Scheduler (Auto Marketing):", e)
-    port = int(os.getenv('PORT', 5001))  # Use port 5001 if 5000 is busy
     app.run(debug=True, host='0.0.0.0', port=port)

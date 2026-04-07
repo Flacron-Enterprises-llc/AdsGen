@@ -103,21 +103,27 @@
         }
 
         document.getElementById('btnFree').addEventListener('click', async function() {
-            this.disabled = true;
-            this.textContent = 'Please wait...';
+            var btn = this;
+            btn.disabled = true;
+            btn.textContent = 'Please wait...';
             try {
-                var res = await fetch('{{ url_for("select_free_plan") }}', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-                var data = await res.json();
-                if (data.success && data.redirect) {
-                    window.location.href = data.redirect;
+                var res = await fetch('{{ url_for("select_free_plan") }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: '{}'
+                });
+                var data = await res.json().catch(function() { return {}; });
+                if (res.ok && data.success) {
+                    window.location.href = data.redirect || '/dashboard';
                     return;
                 }
                 showMsg(data.error || 'Could not select Free plan', true);
             } catch (e) {
                 showMsg('Request failed. Try again.', true);
             }
-            this.disabled = false;
-            this.textContent = 'Select Free';
+            btn.disabled = false;
+            btn.textContent = 'Select Free';
         });
 
         function goToStripe(plan) {

@@ -51,12 +51,12 @@ def set_plan(
     plan: str,
     stripe_customer_id: Optional[str] = None,
     stripe_subscription_id: Optional[str] = None,
-):
-    """Set or update user's plan. plan = 'free' | 'starter' | 'pro'."""
+) -> bool:
+    """Set or update user's plan. plan = 'free' | 'starter' | 'pro'. Returns True if written to Firestore."""
     try:
         db = _get_firestore()
         if not db or not email or plan not in ("free", "starter", "pro"):
-            return
+            return False
         doc_id = _doc_id(email)
         from datetime import datetime
         now = datetime.utcnow()
@@ -74,8 +74,9 @@ def set_plan(
         if not doc_ref.get().exists:
             data["created_at"] = now
         doc_ref.set(data, merge=True)
+        return True
     except Exception:
-        pass
+        return False
 
 
 def list_all_subscriptions() -> List[Dict[str, Any]]:
@@ -108,8 +109,7 @@ def update_subscription_plan(email: str, plan: str) -> bool:
     """Admin: set user's plan. plan = free | starter | pro."""
     if plan not in ("free", "starter", "pro"):
         return False
-    set_plan(email, plan)
-    return True
+    return set_plan(email, plan)
 
 
 def get_pricing() -> Dict[str, Any]:

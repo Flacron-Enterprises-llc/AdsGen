@@ -61,6 +61,12 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
 
+        function hideMsg() {
+            const el = document.getElementById('authMessage');
+            el.textContent = '';
+            el.className = 'auth-message';
+            el.style.display = 'none';
+        }
         function showMsg(text, isError) {
             const el = document.getElementById('authMessage');
             el.textContent = text;
@@ -92,7 +98,7 @@
                 return;
             }
             setLoading(true);
-            showMsg('', false);
+            hideMsg();
             try {
                 const cred = await auth.createUserWithEmailAndPassword(email, password);
                 if (name) await cred.user.updateProfile({ displayName: name });

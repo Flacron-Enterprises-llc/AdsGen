@@ -59,6 +59,12 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
 
+        function hideMsg() {
+            const el = document.getElementById('authMessage');
+            el.textContent = '';
+            el.className = 'auth-message';
+            el.style.display = 'none';
+        }
         function showMsg(text, isError) {
             const el = document.getElementById('authMessage');
             el.textContent = text;
@@ -80,7 +86,7 @@
                 return;
             }
             setLoading(true);
-            showMsg('', false);
+            hideMsg();
             try {
                 const persist = document.getElementById('remember').checked;
                 await auth.setPersistence(persist ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
