@@ -932,4 +932,333 @@ input:focus, select:focus, textarea:focus {
 .sender-status-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
 .sender-status-error   { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 
+/* ─── Dashboard & Generator Steps ─────────────────────────────────────────── */
+
+.dashboard-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.dashboard-header h1 {
+    font-size: 2.2rem;
+    margin-bottom: 8px;
+}
+
+.progress-steps {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+    padding: 20px;
+    overflow-x: auto;
+}
+
+.step {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    position: relative;
+    padding: 10px;
+    opacity: 0.5;
+    transition: var(--transition);
+}
+
+.step.active, .step.completed {
+    opacity: 1;
+}
+
+.step::after {
+    content: '';
+    position: absolute;
+    top: 30px;
+    right: -50%;
+    width: 100%;
+    height: 2px;
+    background: var(--border);
+    z-index: 1;
+}
+
+.step:last-child::after {
+    display: none;
+}
+
+.step.completed::after, .step.active::after {
+    background: var(--primary);
+}
+
+.step-number {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-body);
+    border: 2px solid var(--border);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    margin-bottom: 12px;
+    z-index: 2;
+    position: relative;
+    transition: var(--transition);
+}
+
+.step.active .step-number {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+    box-shadow: 0 0 0 4px var(--primary-light);
+}
+
+.step.completed .step-number {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.step-label {
+    font-weight: 700;
+    color: var(--secondary);
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+}
+
+.step-sublabel {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.step-content {
+    display: none;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.step-content.active {
+    display: block;
+}
+
+.step-navigation {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+}
+
+.form-row {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.form-row .form-group {
+    flex: 1;
+    min-width: 200px;
+}
+
+.form-input-small {
+    max-width: 120px;
+}
+
+/* ─── Dashboard: Add Users (Step 3) ───────────────────────────────────────── */
+.user-section {
+    background: var(--bg-body);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.user-section h3 {
+    margin-bottom: 16px;
+    font-size: 1.1rem;
+}
+
+.user-input-group {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.input-small { flex: 1; min-width: 150px; }
+.input-medium { flex: 2; min-width: 200px; }
+
+.bulk-import-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+}
+
+.bulk-import-panel {
+    background: white;
+    padding: 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    margin-top: 12px;
+}
+
+.bulk-import-panel textarea {
+    width: 100%;
+    min-height: 120px;
+    resize: vertical;
+    margin-bottom: 12px;
+}
+
+.bulk-import-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.users-list {
+    margin-top: 20px;
+    max-height: 250px;
+    overflow-y: auto;
+    border-radius: var(--radius-sm);
+    background: white;
+}
+
+.user-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.user-item:last-child { border-bottom: none; }
+
+.user-summary {
+    background: var(--primary-light);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    border-left: 4px solid var(--primary);
+}
+
+.user-summary h4 { margin: 0; color: var(--secondary); }
+.user-summary p { margin: 0; font-weight: 600; color: var(--primary); }
+
+/* ─── Dashboard: Summary & Send (Step 4) ────────────────────────────────── */
+.summary-container { margin-bottom: 32px; }
+
+.summary-card {
+    background: var(--bg-body);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    text-align: center;
+}
+
+.summary-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 20px;
+    margin: 24px 0 32px;
+}
+
+.summary-stat {
+    background: white;
+    padding: 20px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+}
+
+.summary-value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--primary);
+    line-height: 1;
+    margin-bottom: 8px;
+}
+
+.summary-label {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* ─── Dashboard: Generated Ads (Step 2) & Loading ───────────────────────── */
+.ads-container {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.ad-card {
+    background: var(--bg-body);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    transition: var(--transition);
+}
+
+.ad-card:hover {
+    box-shadow: var(--shadow-sm);
+    border-color: var(--primary-light);
+}
+
+.ad-card-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-weight: 700;
+    color: var(--secondary);
+}
+
+.ad-text {
+    white-space: pre-wrap;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    background: white;
+    padding: 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+}
+
+.btn-loader {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.btn-secondary .spinner-small {
+    border-color: rgba(26, 26, 26, 0.2);
+    border-top-color: var(--secondary);
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────── */
