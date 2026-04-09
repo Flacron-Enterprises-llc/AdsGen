@@ -196,18 +196,18 @@
                                 A confirmation link will be sent to this address.
                             </p>
 
-                            <div class="form-row">
+                            <div class="sender-verify-fields">
                                 <div class="form-group">
                                     <label for="senderEmail">From Email *</label>
-                                    <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                    <div class="sender-email-row">
                                         <input type="email" id="senderEmail"
+                                               class="sender-email-input"
                                                placeholder="you@yourdomain.com"
-                                               style="flex: 1;"
+                                               autocomplete="email"
                                                oninput="onSenderEmailChange()">
                                         <button type="button" id="checkSenderBtn"
-                                                class="btn btn-secondary"
-                                                onclick="checkSenderStatus()"
-                                                style="white-space: nowrap;">
+                                                class="btn btn-secondary sender-check-btn"
+                                                onclick="checkSenderStatus()">
                                             Check Status
                                         </button>
                                     </div>
@@ -215,7 +215,8 @@
                                 <div class="form-group">
                                     <label for="senderName">From Name</label>
                                     <input type="text" id="senderName"
-                                           placeholder="Your Name or Brand">
+                                           placeholder="Your Name or Brand"
+                                           autocomplete="organization">
                                 </div>
                             </div>
 
@@ -259,7 +260,7 @@
                             <!-- Status message -->
                             <div id="senderStatusMsg" class="sender-status-msg" style="display:none;"></div>
 
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px;">
+                            <div class="sender-verify-actions">
                                 <button type="button" id="verifySenderBtn"
                                         class="btn btn-primary"
                                         onclick="verifySender()">

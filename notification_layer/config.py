@@ -75,9 +75,9 @@ class NotificationConfig:
     def _load_sendgrid_config(self) -> Dict[str, Any]:
         """Load SendGrid configuration from environment variables."""
         config = {
-            "api_key": os.getenv("SENDGRID_API_KEY"),
-            "from_email": os.getenv("SENDGRID_FROM_EMAIL"),
-            "from_name": os.getenv("SENDGRID_FROM_NAME", "AdsCompetitor"),
+            "api_key": (os.getenv("SENDGRID_API_KEY") or "").strip(),
+            "from_email": (os.getenv("SENDGRID_FROM_EMAIL") or "").strip(),
+            "from_name": (os.getenv("SENDGRID_FROM_NAME") or "AdsCompetitor").strip(),
             "enabled": os.getenv("SENDGRID_ENABLED", "true").lower() in ("true", "1", "yes")
         }
 

@@ -904,6 +904,45 @@ input:focus, select:focus, textarea:focus {
     line-height: 1.5;
 }
 
+/* Stacked layout: email row + full-width name (avoids misaligned two-column labels) */
+.sender-verify-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.sender-verify-fields .form-group {
+    margin-bottom: 0;
+}
+
+.sender-email-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.sender-email-input {
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+.sender-check-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    align-self: stretch;
+    padding-left: 16px;
+    padding-right: 16px;
+}
+
+.sender-verify-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 4px;
+}
+
 /* Badge states */
 .sender-badge {
     font-size: 0.75rem;

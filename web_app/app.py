@@ -1239,6 +1239,12 @@ def validate_email_endpoint():
 
 # ── SendGrid Single Sender Verification ──────────────────────────────────────
 
+
+def _sendgrid_api_key() -> str:
+    """Strip whitespace/newlines; a trailing newline in SENDGRID_API_KEY breaks the Bearer header."""
+    return (os.getenv('SENDGRID_API_KEY') or '').strip()
+
+
 @app.route('/api/sendgrid/verify-sender', methods=['POST'])
 def sendgrid_verify_sender():
     """
@@ -1269,7 +1275,7 @@ def sendgrid_verify_sender():
     if not email:
         return jsonify({'success': False, 'error': 'Email is required'}), 400
 
-    api_key = os.getenv('SENDGRID_API_KEY', '')
+    api_key = _sendgrid_api_key()
     if not api_key:
         return jsonify({'success': False, 'error': 'SendGrid API key not configured'}), 500
 
@@ -1382,7 +1388,7 @@ def sendgrid_sender_status():
     if not email:
         return jsonify({'success': False, 'error': 'email query param required'}), 400
 
-    api_key = os.getenv('SENDGRID_API_KEY', '')
+    api_key = _sendgrid_api_key()
     if not api_key:
         return jsonify({'success': False, 'error': 'SendGrid API key not configured'}), 500
 
