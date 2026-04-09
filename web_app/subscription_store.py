@@ -1,22 +1,28 @@
 """
 Subscription/plan store using Firebase Firestore. Keys by user email.
 """
+import os as _os
 from typing import Optional, List, Dict, Any
 
 _COLLECTION = "subscriptions"
 
-# Module-level cached Firestore client.
-# app.py calls set_firestore_client() right after Firebase initialises so that
-# every Gunicorn worker that imports this module picks up the same client
-# without having to call firebase_admin.get_app() again.
+# Cached client + the PID it was created for.
+# Gunicorn forks workers AFTER the master process initialises Firebase, which
+# breaks gRPC-based Firestore channels in child processes.  We detect a PID
+# change and create a fresh client so every worker has its own live connection.
 _firestore_client = None
+_firestore_pid: Optional[int] = None
 
 
 def set_firestore_client(db) -> None:
-    """Inject the Firestore client from app.py. Called once per worker startup."""
-    global _firestore_client
+    """Optionally pre-inject a client (called from app.py at startup).
+    The client is only used if the current PID matches the one it was created
+    for — otherwise _get_firestore() will create a fresh one.
+    """
+    global _firestore_client, _firestore_pid
     _firestore_client = db
-    print(f"[subscription_store] Firestore client injected: {type(db).__name__}")
+    _firestore_pid = _os.getpid()
+    print(f"[subscription_store] Firestore client set for PID {_firestore_pid}: {type(db).__name__}")
 
 
 def _is_active_status(data: dict) -> bool:
@@ -25,20 +31,25 @@ def _is_active_status(data: dict) -> bool:
 
 
 def _get_firestore():
-    global _firestore_client
-    # Use cached client if available
-    if _firestore_client is not None:
+    global _firestore_client, _firestore_pid
+    current_pid = _os.getpid()
+
+    # Return cached client only if we're in the same process it was created for.
+    if _firestore_client is not None and _firestore_pid == current_pid:
         return _firestore_client
-    # Fallback: try firebase_admin.get_app()
+
+    # PID changed (Gunicorn fork) or no client yet — create a fresh one.
     try:
         import firebase_admin
         from firebase_admin import firestore
         app = firebase_admin.get_app()
         client = firestore.client(app)
-        _firestore_client = client  # cache for next call
+        _firestore_client = client
+        _firestore_pid = current_pid
+        print(f"[subscription_store] Firestore client (re)created for PID {current_pid}")
         return client
     except Exception as e:
-        print(f"[subscription_store] _get_firestore failed: {e}")
+        print(f"[subscription_store] _get_firestore failed (PID {current_pid}): {e}")
         return None
 
 
