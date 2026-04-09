@@ -74,11 +74,35 @@ if os.getenv('TRUST_PROXY_HEADERS', '').strip().lower() in ('1', 'true', 'yes', 
 
 
 def _public_base_url():
-    """Canonical public origin for Stripe return URLs (https in production)."""
-    base = (os.getenv('PUBLIC_APP_URL') or os.getenv('APP_BASE_URL') or '').strip().rstrip('/')
-    if base:
-        return base
-    return request.url_root.rstrip('/')
+    """
+    Origin for Stripe success/cancel URLs (must match the host the user sees in the browser).
+
+    - If PUBLIC_APP_URL host differs from the incoming Host (www vs apex, etc.), we use the
+      request URL so the session cookie after Stripe matches the tab that started checkout.
+    - If the app still sees http:// behind Render but PUBLIC_APP_URL is https and same host,
+      prefer PUBLIC_APP_URL so Stripe gets a public https URL.
+    """
+    req_base = request.url_root.rstrip('/')
+    env_base = (os.getenv('PUBLIC_APP_URL') or os.getenv('APP_BASE_URL') or '').strip().rstrip('/')
+    if not env_base:
+        return req_base
+    try:
+        from urllib.parse import urlparse
+        eu = urlparse(env_base if '://' in env_base else f'https://{env_base}')
+        ru = urlparse(req_base + '/')
+        env_host = (eu.netloc or '').lower().split('@')[-1].split(':')[0]
+        req_host = (request.host or '').lower().split(':')[0]
+        if env_host and req_host and env_host != req_host:
+            print(
+                f"[stripe] PUBLIC_APP_URL host {env_host!r} != request Host {req_host!r}; "
+                f"using request URL for checkout return (avoids losing session after payment)."
+            )
+            return req_base
+        if ru.scheme == 'http' and eu.scheme == 'https' and env_host == req_host:
+            return env_base.rstrip('/')
+    except Exception:
+        pass
+    return env_base.rstrip('/')
 
 
 def _safe_next_after_login(url: str):
