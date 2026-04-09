@@ -262,6 +262,29 @@ except Exception as e:
 _PLAN_GATE_MAX_AGE_SEC = 7 * 24 * 3600
 
 
+def _raw_active_plan(email: str):
+    """Best-effort direct Firestore lookup used as a fallback during login gating."""
+    e = (email or '').strip().lower()
+    if not e:
+        return None
+    try:
+        from web_app.subscription_store import _get_firestore, _doc_id
+        db = _get_firestore()
+        if not db:
+            return None
+        snap = db.collection('subscriptions').document(_doc_id(e)).get()
+        if not snap.exists:
+            return None
+        data = snap.to_dict() or {}
+        plan = (data.get('plan') or '').strip().lower()
+        status = (data.get('status') or '').strip().lower()
+        if status == 'active' and plan in ('free', 'starter', 'pro'):
+            return plan
+    except Exception as err:
+        print(f"[plan_gate] raw Firestore fallback failed for {e!r}: {err}")
+    return None
+
+
 def user_has_active_plan(email: str) -> bool:
     """True if Firestore has an active subscription, or a recent verified plan_gate for this user."""
     e = (email or '').strip().lower()
@@ -270,6 +293,10 @@ def user_has_active_plan(email: str) -> bool:
     if has_active_plan(e):
         session.pop('plan_gate', None)
         session.modified = True
+        return True
+    raw_plan = _raw_active_plan(e)
+    if raw_plan:
+        set_plan_gate(e, raw_plan)
         return True
     pg = session.get('plan_gate') or {}
     if (pg.get('email') or '').strip().lower() != e:
