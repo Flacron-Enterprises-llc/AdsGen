@@ -231,9 +231,19 @@ try:
         update_subscription_plan,
         get_pricing,
         set_pricing,
+        set_firestore_client,
     )
     from .campaign_store import list_all_campaigns, get_usage_stats
     init_subscription_store()
+    # Inject the Firestore client directly so subscription_store never has to
+    # call firebase_admin.get_app() on its own (avoids per-worker init issues).
+    if _firebase_app is not None:
+        try:
+            from firebase_admin import firestore as _fs_module
+            set_firestore_client(_fs_module.client(_firebase_app))
+            print("Firestore client injected into subscription_store.")
+        except Exception as _fs_err:
+            print(f"Could not inject Firestore client: {_fs_err}")
 except Exception as e:
     print(f"Subscription/Campaign store init failed: {e}")
     has_active_plan = lambda email: False

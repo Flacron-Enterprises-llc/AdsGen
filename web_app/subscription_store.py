@@ -5,6 +5,19 @@ from typing import Optional, List, Dict, Any
 
 _COLLECTION = "subscriptions"
 
+# Module-level cached Firestore client.
+# app.py calls set_firestore_client() right after Firebase initialises so that
+# every Gunicorn worker that imports this module picks up the same client
+# without having to call firebase_admin.get_app() again.
+_firestore_client = None
+
+
+def set_firestore_client(db) -> None:
+    """Inject the Firestore client from app.py. Called once per worker startup."""
+    global _firestore_client
+    _firestore_client = db
+    print(f"[subscription_store] Firestore client injected: {type(db).__name__}")
+
 
 def _is_active_status(data: dict) -> bool:
     st = (data or {}).get("status")
@@ -12,11 +25,18 @@ def _is_active_status(data: dict) -> bool:
 
 
 def _get_firestore():
+    global _firestore_client
+    # Use cached client if available
+    if _firestore_client is not None:
+        return _firestore_client
+    # Fallback: try firebase_admin.get_app()
     try:
         import firebase_admin
         from firebase_admin import firestore
         app = firebase_admin.get_app()
-        return firestore.client(app)
+        client = firestore.client(app)
+        _firestore_client = client  # cache for next call
+        return client
     except Exception as e:
         print(f"[subscription_store] _get_firestore failed: {e}")
         return None
@@ -56,7 +76,9 @@ def get_subscription(email: str) -> Optional[dict]:
             return None
         return {"email": doc_id, "plan": plan, **data}
     except Exception as e:
+        import traceback
         print(f"[subscription_store] get_subscription failed for {email!r}: {e}")
+        traceback.print_exc()
         return None
 
 
