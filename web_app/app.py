@@ -852,13 +852,28 @@ def plan_status():
     email = (session.get('user_email') or '').strip().lower()
     sub = get_subscription(email)
     pg = session.get('plan_gate') or {}
+
+    # Raw Firestore read (bypasses status check) so we can see exactly what is stored.
+    raw_doc = None
+    try:
+        from web_app.subscription_store import _get_firestore, _doc_id
+        db = _get_firestore()
+        if db and email:
+            snap = db.collection('subscriptions').document(_doc_id(email)).get()
+            raw_doc = snap.to_dict() if snap.exists else '__no_document__'
+            if isinstance(raw_doc, dict):
+                raw_doc = {k: str(v) for k, v in raw_doc.items()}
+    except Exception as e:
+        raw_doc = f'error: {e}'
+
     return jsonify({
         'email': email,
         'firestore_plan': sub.get('plan') if sub else None,
         'firestore_status': sub.get('status') if sub else None,
+        'firestore_raw_doc': raw_doc,
+        'has_active_plan': user_has_active_plan(email),
         'plan_gate': pg.get('plan') if pg else None,
         'plan_gate_email': pg.get('email') if pg else None,
-        'has_active_plan': user_has_active_plan(email),
     })
 
 

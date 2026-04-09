@@ -35,16 +35,26 @@ def get_subscription(email: str) -> Optional[dict]:
     """Return subscription for email or None."""
     try:
         db = _get_firestore()
-        if not db or not email:
+        if not db:
+            print(f"[subscription_store] get_subscription: no Firestore client for {email!r}")
+            return None
+        if not email:
             return None
         doc_id = _doc_id(email)
         doc = db.collection(_COLLECTION).document(doc_id).get()
         if not doc.exists:
+            print(f"[subscription_store] get_subscription: no doc for {doc_id!r}")
             return None
-        data = doc.to_dict()
+        data = doc.to_dict() or {}
+        status = data.get("status")
+        plan = data.get("plan")
         if not _is_active_status(data):
+            print(
+                f"[subscription_store] get_subscription: doc {doc_id!r} exists but not active "
+                f"(status={status!r}, plan={plan!r})"
+            )
             return None
-        return {"email": doc_id, "plan": data.get("plan"), **data}
+        return {"email": doc_id, "plan": plan, **data}
     except Exception as e:
         print(f"[subscription_store] get_subscription failed for {email!r}: {e}")
         return None
