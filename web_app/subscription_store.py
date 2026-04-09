@@ -6,12 +6,19 @@ from typing import Optional, List, Dict, Any
 _COLLECTION = "subscriptions"
 
 
+def _is_active_status(data: dict) -> bool:
+    st = (data or {}).get("status")
+    return st is not None and str(st).strip().lower() == "active"
+
+
 def _get_firestore():
     try:
         import firebase_admin
         from firebase_admin import firestore
-        return firestore.client()
-    except Exception:
+        app = firebase_admin.get_app()
+        return firestore.client(app)
+    except Exception as e:
+        print(f"[subscription_store] _get_firestore failed: {e}")
         return None
 
 
@@ -35,10 +42,11 @@ def get_subscription(email: str) -> Optional[dict]:
         if not doc.exists:
             return None
         data = doc.to_dict()
-        if (data or {}).get("status") != "active":
+        if not _is_active_status(data):
             return None
         return {"email": doc_id, "plan": data.get("plan"), **data}
-    except Exception:
+    except Exception as e:
+        print(f"[subscription_store] get_subscription failed for {email!r}: {e}")
         return None
 
 
@@ -74,8 +82,20 @@ def set_plan(
         if not doc_ref.get().exists:
             data["created_at"] = now
         doc_ref.set(data, merge=True)
+        snap = doc_ref.get()
+        if not snap.exists:
+            print(f"[subscription_store] set_plan: doc missing after write for {doc_id!r}")
+            return False
+        written = snap.to_dict() or {}
+        if not _is_active_status(written) or (written.get("plan") or "").strip().lower() != plan:
+            print(
+                f"[subscription_store] set_plan: unexpected data after write for {doc_id!r}: "
+                f"status={written.get('status')!r} plan={written.get('plan')!r}"
+            )
+            return False
         return True
-    except Exception:
+    except Exception as e:
+        print(f"[subscription_store] set_plan failed for {email!r}: {e}")
         return False
 
 

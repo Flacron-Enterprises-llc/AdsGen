@@ -22,6 +22,9 @@
             <p class="step-subtitle">Enter your email and password to continue</p>
 
             <div id="authMessage" class="auth-message" style="display: none;"></div>
+            {% if login_banner_text %}
+            <div class="auth-message {{ 'auth-error' if login_banner_error else 'auth-success' }}" style="display: block; margin-bottom: 16px;">{{ login_banner_text }}</div>
+            {% endif %}
 
             <form id="loginForm" class="auth-form">
                 <div class="form-group">
@@ -92,10 +95,13 @@
                 await auth.setPersistence(persist ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
                 const cred = await auth.signInWithEmailAndPassword(email, password);
                 const idToken = await cred.user.getIdToken();
+                const loginNext = {{ login_next | tojson }};
+                const payload = { id_token: idToken };
+                if (loginNext) payload.next = loginNext;
                 const res = await fetch('{{ url_for("auth_firebase") }}', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id_token: idToken })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 if (data.success) {

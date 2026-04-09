@@ -6,8 +6,10 @@ Provides a web interface for generating and sending ads.
 import os
 import sys
 import json
+import time
+from datetime import timedelta
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, session, redirect
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
 
 # Try to load .env file if python-dotenv is available
@@ -57,6 +59,12 @@ app = Flask(__name__,
             template_folder=str(app_dir / 'templates'),
             static_folder=str(app_dir / 'static'))
 app.secret_key = os.getenv('SECRET_KEY', 'adscompetitor-secret-key-change-in-production')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+# Returning from Stripe is a top-level GET; Lax is correct for http://localhost (do not set Secure on http).
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+if os.getenv('SESSION_COOKIE_SECURE', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+    app.config['SESSION_COOKIE_SECURE'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 CORS(app)
 
 # Reverse proxies (Render, Railway, Heroku) terminate TLS; without this, request.url_root is http://… internally.
@@ -71,6 +79,21 @@ def _public_base_url():
     if base:
         return base
     return request.url_root.rstrip('/')
+
+
+def _safe_next_after_login(url: str):
+    """Allow only internal paths for post-login redirect (open-redirect safe)."""
+    if not url or not isinstance(url, str):
+        return None
+    u = url.strip()
+    if not u.startswith('/') or u.startswith('//'):
+        return None
+    path = u.split('?')[0].split('#')[0]
+    if path == '/dashboard':
+        return '/dashboard'
+    if path == '/choose-plan':
+        return '/choose-plan'
+    return None
 
 
 # Firebase client config (for login/signup pages). Server verification uses firebase_admin.
@@ -201,6 +224,36 @@ except Exception as e:
     get_pricing = lambda: {}
     set_pricing = lambda d: None
 
+# Session fallback when Firestore read lags or fails after a verified write (Stripe / free plan).
+_PLAN_GATE_MAX_AGE_SEC = 7 * 24 * 3600
+
+
+def user_has_active_plan(email: str) -> bool:
+    """True if Firestore has an active subscription, or a recent verified plan_gate for this user."""
+    e = (email or '').strip().lower()
+    if not e:
+        return False
+    if has_active_plan(e):
+        session.pop('plan_gate', None)
+        session.modified = True
+        return True
+    pg = session.get('plan_gate') or {}
+    if (pg.get('email') or '').strip().lower() != e:
+        return False
+    if pg.get('plan') not in ('free', 'starter', 'pro'):
+        return False
+    if time.time() - float(pg.get('ts') or 0) > _PLAN_GATE_MAX_AGE_SEC:
+        return False
+    return True
+
+
+def set_plan_gate(email: str, plan: str) -> None:
+    e = (email or '').strip().lower()
+    if e and plan in ('free', 'starter', 'pro'):
+        session['plan_gate'] = {'email': e, 'plan': plan, 'ts': time.time()}
+        session.modified = True
+
+
 # Initialize queue system (optional)
 queue_available = False
 if QUEUE_MODULE_AVAILABLE:
@@ -281,7 +334,7 @@ def index():
         email = (session.get('user_email') or '').strip().lower()
         if email in get_admin_emails():
             return redirect('/admin')
-        return redirect('/dashboard' if has_active_plan(email) else '/choose-plan')
+        return redirect('/dashboard' if user_has_active_plan(email) else '/choose-plan')
     return render_template('landing.html')
 
 
@@ -291,7 +344,7 @@ def dashboard():
     if not session.get('logged_in'):
         return redirect('/login')
     email = (session.get('user_email') or '').strip().lower()
-    if not has_active_plan(email):
+    if not user_has_active_plan(email):
         return redirect('/choose-plan')
     is_admin = email in get_admin_emails()
     return render_template('index.html', is_admin=is_admin)
@@ -304,9 +357,33 @@ def login():
         email = (session.get('user_email') or '').strip().lower()
         if email in get_admin_emails():
             return redirect('/admin')
-        return redirect('/dashboard' if has_active_plan(email) else '/choose-plan')
+        return redirect('/dashboard' if user_has_active_plan(email) else '/choose-plan')
     firebase_config = get_firebase_config()
-    return render_template('login.html', firebase_config=firebase_config)
+    login_next = _safe_next_after_login(request.args.get('next', ''))
+    pay_err = (request.args.get('pay_err') or '').strip()
+    pay_ok = (request.args.get('pay_ok') or '').strip()
+    pay_err_messages = {
+        'missing_session': 'Checkout session missing. Open the link from Stripe again or pick a plan.',
+        'no_email': 'We could not read your email from the payment. Contact support.',
+        'plan_unknown': 'Payment completed but we could not read your plan. Contact support with your receipt.',
+        'save_failed': 'Payment may have succeeded but saving your plan failed. Enable Firestore, then sign in — or contact support.',
+        'not_paid': 'That checkout was not completed. Try paying again.',
+    }
+    login_banner_text = None
+    login_banner_error = False
+    if pay_ok:
+        login_banner_text = 'Payment received. Sign in with the same email you used at checkout to open the dashboard.'
+        login_banner_error = False
+    elif pay_err:
+        login_banner_text = pay_err_messages.get(pay_err, 'Something went wrong after payment. Try signing in, or contact support.')
+        login_banner_error = True
+    return render_template(
+        'login.html',
+        firebase_config=firebase_config,
+        login_next=login_next,
+        login_banner_text=login_banner_text,
+        login_banner_error=login_banner_error,
+    )
 
 
 @app.route('/signup', methods=['GET'])
@@ -316,7 +393,7 @@ def signup():
         email = (session.get('user_email') or '').strip().lower()
         if email in get_admin_emails():
             return redirect('/admin')
-        return redirect('/dashboard' if has_active_plan(email) else '/choose-plan')
+        return redirect('/dashboard' if user_has_active_plan(email) else '/choose-plan')
     firebase_config = get_firebase_config()
     return render_template('signup.html', firebase_config=firebase_config)
 
@@ -330,10 +407,9 @@ def auth_firebase():
     if _firebase_app is None:
         return jsonify({'success': False, 'error': 'Firebase not configured on server'}), 503
     id_token = None
-    if request.is_json:
-        id_token = (request.json or {}).get('id_token', '').strip()
-    else:
-        id_token = (request.form.get('id_token') or '').strip()
+    body = request.get_json(silent=True) or {}
+    id_token = (body.get('id_token') or request.form.get('id_token') or '').strip()
+    next_path = _safe_next_after_login((body.get('next') or request.form.get('next') or '').strip())
     if not id_token:
         return jsonify({'success': False, 'error': 'id_token required'}), 400
     try:
@@ -349,11 +425,15 @@ def auth_firebase():
         session['user_email'] = email
         session['user_name'] = name
         session['logged_in'] = True
+        session.permanent = True
         admin_list = get_admin_emails()
         if email in admin_list:
             redirect_to = '/admin'
         else:
-            redirect_to = '/dashboard' if has_active_plan(email) else '/choose-plan'
+            if user_has_active_plan(email):
+                redirect_to = next_path if next_path else '/dashboard'
+            else:
+                redirect_to = '/choose-plan'
             if admin_list:
                 print(f"[auth] Login email={email!r} not in ADMIN_EMAILS={admin_list!r} -> redirect {redirect_to}")
         return jsonify({'success': True, 'redirect': redirect_to})
@@ -367,6 +447,7 @@ def logout():
     session.pop('logged_in', None)
     session.pop('user_email', None)
     session.pop('user_name', None)
+    session.pop('plan_gate', None)
     return redirect('/')
 
 
@@ -397,6 +478,77 @@ def about():
     return render_template('about.html')
 
 
+def _stripe_metadata_dict(checkout) -> dict:
+    """Normalize Stripe Checkout Session metadata to a plain dict."""
+    try:
+        md = checkout.get('metadata') if hasattr(checkout, 'get') else None
+        if md is None:
+            md = getattr(checkout, 'metadata', None)
+        if not md:
+            return {}
+        if isinstance(md, dict):
+            return dict(md)
+        if hasattr(md, 'to_dict'):
+            return dict(md.to_dict())
+        return dict(md)
+    except Exception:
+        return {}
+
+
+def _resolve_paid_plan_from_checkout(checkout) -> str:
+    """Return 'starter' or 'pro' from session metadata or Stripe Price IDs on line items / subscription."""
+    md = _stripe_metadata_dict(checkout)
+    p = (md.get('plan') or '').strip().lower()
+    if p in ('starter', 'pro'):
+        return p
+    starter_price = (os.getenv('STRIPE_PRICE_STARTER') or '').strip()
+    pro_price = (os.getenv('STRIPE_PRICE_PRO') or '').strip()
+    if not starter_price and not pro_price:
+        return ''
+    try:
+        line_items = getattr(checkout, 'line_items', None)
+        line_data = getattr(line_items, 'data', None) if line_items else None
+        if line_data:
+            for li in line_data:
+                price = getattr(li, 'price', None)
+                pid = getattr(price, 'id', None) if price else None
+                if pid and pid == starter_price:
+                    return 'starter'
+                if pid and pro_price and pid == pro_price:
+                    return 'pro'
+    except Exception as e:
+        print(f"[payment_success] plan from line_items: {e}")
+    try:
+        sub = checkout.get('subscription') if hasattr(checkout, 'get') else getattr(checkout, 'subscription', None)
+        if sub and not isinstance(sub, str):
+            items = getattr(getattr(sub, 'items', None), 'data', None)
+            if items:
+                for si in items:
+                    price = getattr(si, 'price', None)
+                    pid = getattr(price, 'id', None) if price else None
+                    if pid and pid == starter_price:
+                        return 'starter'
+                    if pid and pro_price and pid == pro_price:
+                        return 'pro'
+    except Exception as e:
+        print(f"[payment_success] plan from subscription items: {e}")
+    try:
+        sub = checkout.get('subscription') if hasattr(checkout, 'get') else getattr(checkout, 'subscription', None)
+        if sub and not isinstance(sub, str):
+            smd = getattr(sub, 'metadata', None)
+            if smd:
+                if hasattr(smd, 'to_dict'):
+                    smd = smd.to_dict()
+                elif not isinstance(smd, dict):
+                    smd = dict(smd)
+                p = (smd.get('plan') or '').strip().lower()
+                if p in ('starter', 'pro'):
+                    return p
+    except Exception as e:
+        print(f"[payment_success] plan from subscription metadata: {e}")
+    return ''
+
+
 @app.route('/choose-plan')
 def choose_plan():
     """Mandatory plan selection after signup. Requires login. Admins go to /admin. Free = select; Starter/Pro = pay via Stripe."""
@@ -405,43 +557,116 @@ def choose_plan():
     email = (session.get('user_email') or '').strip().lower()
     if email in get_admin_emails():
         return redirect('/admin')
-    if has_active_plan(email):
+    if user_has_active_plan(email):
         return redirect('/dashboard')
     stripe_publishable = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
-    return render_template('choose_plan.html', stripe_publishable_key=stripe_publishable)
+    err = (request.args.get('err') or '').strip()
+    err_messages = {
+        'missing_session': 'Missing payment session. Return from Stripe checkout or contact support.',
+        'session_mismatch': 'This payment does not match your logged-in account. Log in with the same email you used at checkout.',
+        'no_email': 'Could not confirm your email from the payment. Contact support.',
+        'plan_unknown': 'Payment completed but we could not determine your plan. Contact support with your receipt.',
+        'save_failed': 'Payment succeeded but saving your plan failed. Enable Firestore for your Firebase project and ensure the server has credentials, then use “Select Free” or pay again, or contact support.',
+        'not_paid': 'Payment was not completed. Try again or choose another plan.',
+    }
+    plan_error = err_messages.get(err)
+    return render_template(
+        'choose_plan.html',
+        stripe_publishable_key=stripe_publishable,
+        plan_error=plan_error,
+    )
 
 
 @app.route('/payment-success')
 def payment_success():
-    """After Stripe Checkout: verify session, set plan, redirect to dashboard."""
-    if not session.get('logged_in'):
-        return redirect('/login')
+    """
+    After Stripe Checkout: verify session, write plan to Firestore, then redirect.
+    Does NOT require a Flask session first — returning from Stripe often drops the session cookie;
+    we use Checkout client_reference_id / customer_email, then send the user to login if needed.
+    """
     session_id = request.args.get('session_id', '').strip()
     if not session_id:
-        return redirect('/choose-plan')
+        return redirect(url_for('login', next='/choose-plan', pay_err='missing_session'))
     secret = os.getenv('STRIPE_SECRET_KEY', '')
     if not secret:
-        return redirect('/choose-plan')
+        return redirect(url_for('login', next='/dashboard', pay_err='save_failed'))
     try:
         import stripe
         stripe.api_key = secret
-        checkout = stripe.checkout.Session.retrieve(session_id, expand=['subscription'])
-        if checkout.get('payment_status') != 'paid' and checkout.get('status') != 'complete':
-            return redirect('/choose-plan')
-        email = (checkout.get('customer_email') or checkout.get('client_reference_id') or '').strip().lower()
+        try:
+            checkout = stripe.checkout.Session.retrieve(
+                session_id,
+                expand=['subscription', 'line_items.data.price'],
+            )
+        except Exception as e:
+            print(f"[payment_success] retrieve with line_items expand failed, retrying: {e}")
+            checkout = stripe.checkout.Session.retrieve(session_id, expand=['subscription'])
+        ps = checkout.get('payment_status')
+        st = checkout.get('status')
+        if ps not in ('paid', 'no_payment_required') and st != 'complete':
+            return redirect(url_for('login', next='/choose-plan', pay_err='not_paid'))
+
+        ref = (checkout.get('client_reference_id') or '').strip().lower()
+        cust_email = (checkout.get('customer_email') or '').strip().lower()
+        session_email = (session.get('user_email') or '').strip().lower()
+        logged_in = bool(session.get('logged_in'))
+
+        if logged_in and session_email:
+            if ref and ref != session_email:
+                print(f"[payment_success] client_reference_id mismatch ref={ref!r} session={session_email!r}")
+                return redirect(url_for('choose_plan', err='session_mismatch'))
+            email = session_email
+        else:
+            email = ref or cust_email
+
         if not email:
-            email = (session.get('user_email') or '').strip().lower()
-        plan_from_price = checkout.get('metadata', {}).get('plan') or ''
-        if plan_from_price in ('starter', 'pro'):
-            sub = checkout.get('subscription')
-            stripe_sub_id = sub.id if sub else None
-            set_plan(email, plan_from_price, stripe_customer_id=checkout.get('customer_id'), stripe_subscription_id=stripe_sub_id)
-        if email != (session.get('user_email') or '').strip().lower():
-            pass
-        return redirect('/dashboard')
+            return redirect(url_for('login', next='/dashboard', pay_err='no_email'))
+
+        plan = _resolve_paid_plan_from_checkout(checkout)
+        if plan not in ('starter', 'pro'):
+            print(f"[payment_success] unresolved plan; metadata={_stripe_metadata_dict(checkout)}")
+            return redirect(url_for('login', next='/choose-plan', pay_err='plan_unknown'))
+
+        sub = checkout.get('subscription')
+        if isinstance(sub, str):
+            stripe_sub_id = sub
+        elif sub is not None:
+            stripe_sub_id = getattr(sub, 'id', None)
+        else:
+            stripe_sub_id = None
+
+        cust_id = checkout.get('customer')
+        if isinstance(cust_id, str):
+            stripe_customer_id = cust_id
+        elif cust_id is not None:
+            stripe_customer_id = getattr(cust_id, 'id', None)
+        else:
+            stripe_customer_id = checkout.get('customer_id')
+
+        ok = set_plan(
+            email,
+            plan,
+            stripe_customer_id=stripe_customer_id,
+            stripe_subscription_id=stripe_sub_id,
+        )
+        if not ok:
+            print(f"[payment_success] set_plan returned False for email={email!r} plan={plan!r}")
+            return redirect(url_for('login', next='/dashboard', pay_err='save_failed'))
+
+        # Always stamp plan_gate into the session (works even when user isn't logged in yet;
+        # the cookie travels back with them to /login).
+        set_plan_gate(email, plan)
+
+        if logged_in and session_email == email:
+            return redirect('/dashboard')
+
+        # Not logged in (common: Stripe opened in same tab but session cookie was dropped).
+        return redirect(url_for('login', next='/dashboard', pay_ok='1'))
     except Exception as e:
         print(f"[payment_success] Error: {e}")
-        return redirect('/choose-plan')
+        import traceback
+        traceback.print_exc()
+        return redirect(url_for('login', next='/dashboard', pay_err='save_failed'))
 
 
 @app.route('/api/create-checkout-session', methods=['POST'])
@@ -472,6 +697,7 @@ def create_checkout_session():
             success_url=success_url + '?session_id={CHECKOUT_SESSION_ID}',
             cancel_url=cancel_url,
             metadata={'plan': plan},
+            subscription_data={'metadata': {'plan': plan}},
         )
         return jsonify({'url': session_obj.url})
     except Exception as e:
@@ -495,6 +721,7 @@ def select_free_plan():
             'success': False,
             'error': 'Could not save your plan. Enable Firestore and ensure Firebase Admin credentials are set (FIREBASE_CREDENTIALS_JSON or FIREBASE_CREDENTIALS_PATH).',
         }), 503
+    set_plan_gate(email, 'free')
     return jsonify({'success': True, 'redirect': '/dashboard'})
 
 

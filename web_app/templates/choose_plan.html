@@ -19,6 +19,10 @@
 
         <p class="choose-plan-notice">You must select a plan to access the dashboard. Free plan: no payment. Starter or Pro: pay securely with Stripe.</p>
 
+        {% if plan_error %}
+        <div class="auth-message auth-error" style="display: block; margin: 0 24px 16px;">{{ plan_error }}</div>
+        {% endif %}
+
         <div class="pricing-grid">
             <!-- FREE PLAN -->
             <div class="pricing-card">
