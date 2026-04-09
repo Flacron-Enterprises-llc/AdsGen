@@ -4,42 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign Up - AdsCompetitor</title>
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container auth-container">
+    <div class="auth-container">
         <header class="auth-header">
             <h1>🎯 AdsCompetitor</h1>
             <p class="subtitle">Create your account</p>
         </header>
 
         <div class="auth-card card">
-            <h2>Sign Up</h2>
-            <p class="step-subtitle">Get started with AI-powered ad generation</p>
+            <h2>Get started</h2>
+            <p class="step-subtitle">AI-powered ad generation in minutes</p>
 
-            <div id="authMessage" class="auth-message" style="display: none;"></div>
+            <div id="authMessage" class="auth-message" style="display:none;"></div>
 
             <form id="signupForm" class="auth-form">
                 <div class="form-group">
-                    <label for="name">Full Name *</label>
-                    <input type="text" id="name" name="name" placeholder="Jane Doe" required>
+                    <label for="name">Full Name</label>
+                    <input type="text" id="name" name="name" placeholder="Jane Doe" required autocomplete="name">
                 </div>
                 <div class="form-group">
-                    <label for="email">Email *</label>
-                    <input type="email" id="email" name="email" placeholder="you@example.com" required>
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email">
                 </div>
                 <div class="form-group">
-                    <label for="password">Password *</label>
-                    <input type="password" id="password" name="password" placeholder="••••••••" required minlength="8">
-                    <small>At least 8 characters</small>
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="••••••••" required minlength="8" autocomplete="new-password">
+                    <small style="color:var(--text-muted); font-size:0.82rem; margin-top:4px; display:block;">At least 8 characters</small>
                 </div>
                 <div class="form-group">
-                    <label for="confirm_password">Confirm Password *</label>
-                    <input type="password" id="confirm_password" name="confirm_password" placeholder="••••••••" required>
+                    <label for="confirm_password">Confirm Password</label>
+                    <input type="password" id="confirm_password" name="confirm_password" placeholder="••••••••" required autocomplete="new-password">
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary btn-block" id="submitBtn">Create Account</button>
@@ -48,7 +47,7 @@
 
             <p class="auth-footer">
                 Already have an account? <a href="{{ url_for('login') }}">Log in</a><br>
-                <a href="{{ url_for('pricing') }}">View pricing plans</a> · <a href="{{ url_for('index') }}">Home</a>
+                <a href="{{ url_for('pricing') }}">View pricing</a> &middot; <a href="{{ url_for('index') }}">Home</a>
             </p>
         </div>
     </div>
@@ -76,7 +75,7 @@
         function setLoading(loading) {
             const btn = document.getElementById('submitBtn');
             btn.disabled = loading;
-            btn.textContent = loading ? 'Creating account...' : 'Create Account';
+            btn.textContent = loading ? 'Creating account…' : 'Create Account';
         }
 
         document.getElementById('signupForm').addEventListener('submit', async function(e) {
@@ -106,6 +105,7 @@
                 const res = await fetch('{{ url_for("auth_firebase") }}', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ id_token: idToken })
                 });
                 const data = await res.json();
@@ -115,7 +115,8 @@
                 }
                 showMsg(data.error || 'Sign up failed', true);
             } catch (err) {
-                const msg = err.code === 'auth/email-already-in-use' ? 'An account with this email already exists.' :
+                const msg =
+                    err.code === 'auth/email-already-in-use' ? 'An account with this email already exists.' :
                     err.code === 'auth/weak-password' ? 'Password is too weak.' :
                     err.code === 'auth/invalid-email' ? 'Invalid email address.' :
                     err.message || 'Sign up failed';
@@ -129,17 +130,18 @@
     <script>
         document.getElementById('signupForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            var p = document.getElementById('password').value;
-            var c = document.getElementById('confirm_password').value;
+            const p = document.getElementById('password').value;
+            const c = document.getElementById('confirm_password').value;
+            const el = document.getElementById('authMessage');
             if (p !== c) {
-                document.getElementById('authMessage').textContent = 'Passwords do not match.';
-                document.getElementById('authMessage').className = 'auth-message auth-error';
-                document.getElementById('authMessage').style.display = 'block';
+                el.textContent = 'Passwords do not match.';
+                el.className = 'auth-message auth-error';
+                el.style.display = 'block';
                 return;
             }
-            document.getElementById('authMessage').textContent = 'Firebase is not configured. Set FIREBASE_* in .env to enable sign up.';
-            document.getElementById('authMessage').className = 'auth-message auth-error';
-            document.getElementById('authMessage').style.display = 'block';
+            el.textContent = 'Firebase is not configured. Set FIREBASE_* in .env to enable sign up.';
+            el.className = 'auth-message auth-error';
+            el.style.display = 'block';
         });
     </script>
     {% endif %}

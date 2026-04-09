@@ -4,31 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Choose Your Plan - AdsCompetitor</title>
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container pricing-container">
+    <div class="pricing-container">
         <header class="pricing-header">
             <h1>🎯 AdsCompetitor</h1>
-            <p class="subtitle">Choose a plan to start using the generator</p>
+            <p class="subtitle">Choose a plan to unlock the dashboard</p>
         </header>
 
-        <p class="choose-plan-notice">You must select a plan to access the dashboard. Free plan: no payment. Starter or Pro: pay securely with Stripe.</p>
+        <p class="choose-plan-notice">
+            Free plan requires no payment. Starter and Pro plans are billed monthly via Stripe — cancel anytime.
+        </p>
 
         {% if plan_error %}
-        <div class="auth-message auth-error" style="display: block; margin: 0 24px 16px;">{{ plan_error }}</div>
+        <div class="auth-message auth-error" style="display:block; max-width:540px; margin:0 auto 24px;">{{ plan_error }}</div>
         {% endif %}
 
         <div class="pricing-grid">
+
             <!-- FREE PLAN -->
             <div class="pricing-card">
                 <div class="pricing-card-header">
                     <h3>Free</h3>
-                    <div class="pricing-price"><span class="price-amount">$0</span><span class="price-period">/month</span></div>
+                    <div class="pricing-price">
+                        <span class="price-amount">$0</span>
+                        <span class="price-period">/month</span>
+                    </div>
                     <p class="pricing-desc">Get started with basic ad generation</p>
                 </div>
                 <ul class="pricing-features">
@@ -40,16 +45,19 @@
                     <li>Basic dashboard</li>
                 </ul>
                 <div class="pricing-cta">
-                    <button type="button" class="btn btn-secondary btn-block" id="btnFree">Select Free</button>
+                    <button type="button" class="btn btn-secondary btn-block" id="btnFree">Select Free Plan</button>
                 </div>
             </div>
 
             <!-- STARTER PLAN -->
             <div class="pricing-card pricing-card-featured">
-                <div class="pricing-badge">Popular</div>
+                <div class="pricing-badge">Most Popular</div>
                 <div class="pricing-card-header">
                     <h3>Starter</h3>
-                    <div class="pricing-price"><span class="price-amount">$49.99</span><span class="price-period">/month</span></div>
+                    <div class="pricing-price">
+                        <span class="price-amount">$49.99</span>
+                        <span class="price-period">/month</span>
+                    </div>
                     <p class="pricing-desc">For growing teams and more campaigns</p>
                 </div>
                 <ul class="pricing-features">
@@ -71,7 +79,10 @@
             <div class="pricing-card">
                 <div class="pricing-card-header">
                     <h3>Pro</h3>
-                    <div class="pricing-price"><span class="price-amount">$97.99</span><span class="price-period">/month</span></div>
+                    <div class="pricing-price">
+                        <span class="price-amount">$97.99</span>
+                        <span class="price-period">/month</span>
+                    </div>
                     <p class="pricing-desc">Unlimited scale and priority support</p>
                 </div>
                 <ul class="pricing-features">
@@ -89,9 +100,10 @@
                     <button type="button" class="btn btn-primary btn-block" id="btnPro">Pay with Stripe — $97.99/mo</button>
                 </div>
             </div>
+
         </div>
 
-        <div id="planMessage" class="auth-message" style="display: none; margin: 0 24px 24px;"></div>
+        <div id="planMessage" class="auth-message" style="display:none; max-width:540px; margin:24px auto 0;"></div>
 
         <p class="pricing-footer">
             <a href="{{ url_for('logout') }}">Log out</a>
@@ -109,7 +121,7 @@
         document.getElementById('btnFree').addEventListener('click', async function() {
             var btn = this;
             btn.disabled = true;
-            btn.textContent = 'Please wait...';
+            btn.textContent = 'Please wait…';
             try {
                 var res = await fetch('{{ url_for("select_free_plan") }}', {
                     method: 'POST',
@@ -122,17 +134,18 @@
                     window.location.href = data.redirect || '/dashboard';
                     return;
                 }
-                showMsg(data.error || 'Could not select Free plan', true);
+                showMsg(data.error || 'Could not select Free plan. Try again.', true);
             } catch (e) {
-                showMsg('Request failed. Try again.', true);
+                showMsg('Request failed. Please try again.', true);
             }
             btn.disabled = false;
-            btn.textContent = 'Select Free';
+            btn.textContent = 'Select Free Plan';
         });
 
         function goToStripe(plan) {
             var btn = plan === 'starter' ? document.getElementById('btnStarter') : document.getElementById('btnPro');
-            if (btn) { btn.disabled = true; btn.textContent = 'Redirecting...'; }
+            var label = plan === 'starter' ? 'Pay with Stripe — $49.99/mo' : 'Pay with Stripe — $97.99/mo';
+            if (btn) { btn.disabled = true; btn.textContent = 'Redirecting to Stripe…'; }
             fetch('{{ url_for("create_checkout_session") }}', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -149,13 +162,13 @@
                 if (data.url) {
                     window.location.href = data.url;
                 } else {
-                    showMsg(data.error || 'Stripe is not configured or invalid plan.', true);
-                    if (btn) { btn.disabled = false; btn.textContent = plan === 'starter' ? 'Pay with Stripe — $49.99/mo' : 'Pay with Stripe — $97.99/mo'; }
+                    showMsg(data.error || 'Stripe is not configured. Please contact support.', true);
+                    if (btn) { btn.disabled = false; btn.textContent = label; }
                 }
             })
             .catch(function(e) {
-                showMsg(e.message || 'Request failed. Try again.', true);
-                if (btn) { btn.disabled = false; btn.textContent = plan === 'starter' ? 'Pay with Stripe — $49.99/mo' : 'Pay with Stripe — $97.99/mo'; }
+                showMsg(e.message || 'Request failed. Please try again.', true);
+                if (btn) { btn.disabled = false; btn.textContent = label; }
             });
         }
 
