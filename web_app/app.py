@@ -674,11 +674,13 @@ def payment_success():
             stripe_subscription_id=stripe_sub_id,
         )
         if not ok:
-            print(f"[payment_success] set_plan returned False for email={email!r} plan={plan!r}")
-            return redirect(url_for('login', next='/dashboard', pay_err='save_failed'))
+            print(
+                f"[payment_success] set_plan returned False for {email!r} plan={plan!r} — "
+                "Firestore may not be enabled. Stamping plan_gate so user can still access the dashboard."
+            )
 
-        # Always stamp plan_gate into the session (works even when user isn't logged in yet;
-        # the cookie travels back with them to /login).
+        # Stripe confirmed the payment — stamp plan_gate regardless of Firestore result.
+        # This lets the user access the dashboard even if Firestore is not yet enabled/reachable.
         set_plan_gate(email, plan)
 
         if logged_in and session_email == email:
@@ -740,13 +742,124 @@ def select_free_plan():
     if not session.get('logged_in'):
         return jsonify({'success': False, 'error': 'Login required'}), 401
     email = (session.get('user_email') or '').strip().lower()
-    if not set_plan(email, 'free'):
-        return jsonify({
-            'success': False,
-            'error': 'Could not save your plan. Enable Firestore and ensure Firebase Admin credentials are set (FIREBASE_CREDENTIALS_JSON or FIREBASE_CREDENTIALS_PATH).',
-        }), 503
+    ok = set_plan(email, 'free')
+    if not ok:
+        print(f"[select_free_plan] Firestore write failed for {email!r}; stamping plan_gate anyway")
     set_plan_gate(email, 'free')
     return jsonify({'success': True, 'redirect': '/dashboard'})
+
+
+@app.route('/api/stripe-webhook', methods=['POST'])
+def stripe_webhook():
+    """
+    Stripe webhook: handles checkout.session.completed to persist plan in Firestore.
+    Set STRIPE_WEBHOOK_SECRET on Render (from Stripe Dashboard → Webhooks).
+    This is the reliable server-side fallback — it fires even when the browser tab drops the session.
+    """
+    payload = request.get_data(as_text=False)
+    sig_header = request.headers.get('Stripe-Signature', '')
+    webhook_secret = os.getenv('STRIPE_WEBHOOK_SECRET', '').strip()
+    if not payload:
+        return jsonify({'error': 'No payload'}), 400
+    event = None
+    try:
+        import stripe
+        stripe.api_key = os.getenv('STRIPE_SECRET_KEY', '')
+        if webhook_secret:
+            try:
+                event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+            except stripe.error.SignatureVerificationError as e:
+                print(f"[webhook] Invalid signature: {e}")
+                return jsonify({'error': 'Invalid signature'}), 400
+        else:
+            event = json.loads(payload)
+            print("[webhook] STRIPE_WEBHOOK_SECRET not set — accepting unverified (dev only)")
+    except Exception as e:
+        print(f"[webhook] Parse error: {e}")
+        return jsonify({'error': 'Parse error'}), 400
+
+    if event.get('type') == 'checkout.session.completed':
+        obj = event.get('data', {}).get('object', {})
+        if hasattr(obj, 'get'):
+            ps = obj.get('payment_status')
+            st = obj.get('status')
+        else:
+            ps = getattr(obj, 'payment_status', None)
+            st = getattr(obj, 'status', None)
+        if ps in ('paid', 'no_payment_required') or st == 'complete':
+            md = {}
+            raw_md = getattr(obj, 'metadata', None) if not hasattr(obj, 'get') else obj.get('metadata')
+            if raw_md:
+                md = dict(raw_md) if not isinstance(raw_md, dict) else raw_md
+            plan = (md.get('plan') or '').strip().lower()
+            if plan not in ('starter', 'pro'):
+                if hasattr(obj, 'get'):
+                    ref = (obj.get('client_reference_id') or '').lower()
+                    cust_email = (obj.get('customer_email') or '').lower()
+                else:
+                    ref = (getattr(obj, 'client_reference_id', None) or '').lower()
+                    cust_email = (getattr(obj, 'customer_email', None) or '').lower()
+                starter_price = (os.getenv('STRIPE_PRICE_STARTER') or '').strip()
+                pro_price = (os.getenv('STRIPE_PRICE_PRO') or '').strip()
+                line_items_url = f"https://api.stripe.com/v1/checkout/sessions/{getattr(obj, 'id', obj.get('id', ''))}/line_items"
+                try:
+                    import stripe as stripe_mod
+                    sess_id = getattr(obj, 'id', None) or obj.get('id', '')
+                    li = stripe_mod.checkout.Session.list_line_items(sess_id, limit=5)
+                    for item in (li.get('data') if hasattr(li, 'get') else getattr(li, 'data', [])):
+                        price = getattr(item, 'price', None)
+                        pid = getattr(price, 'id', None) if price else None
+                        if pid == starter_price:
+                            plan = 'starter'
+                            break
+                        if pid and pro_price and pid == pro_price:
+                            plan = 'pro'
+                            break
+                except Exception as li_err:
+                    print(f"[webhook] line_items lookup failed: {li_err}")
+            email = (md.get('email') or '')
+            if not email:
+                if hasattr(obj, 'get'):
+                    email = (obj.get('client_reference_id') or obj.get('customer_email') or '').strip().lower()
+                else:
+                    email = (getattr(obj, 'client_reference_id', None) or getattr(obj, 'customer_email', None) or '').strip().lower()
+            if email and plan in ('starter', 'pro'):
+                try:
+                    if hasattr(obj, 'get'):
+                        sub_id = obj.get('subscription')
+                        cust_id = obj.get('customer')
+                    else:
+                        sub_id = getattr(obj, 'subscription', None)
+                        cust_id = getattr(obj, 'customer', None)
+                    set_plan(
+                        email, plan,
+                        stripe_customer_id=cust_id if isinstance(cust_id, str) else getattr(cust_id, 'id', None),
+                        stripe_subscription_id=sub_id if isinstance(sub_id, str) else getattr(sub_id, 'id', None),
+                    )
+                    print(f"[webhook] checkout.session.completed → set_plan({email!r}, {plan!r})")
+                except Exception as e:
+                    print(f"[webhook] set_plan failed: {e}")
+            else:
+                print(f"[webhook] skipped: email={email!r} plan={plan!r}")
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/api/plan-status')
+def plan_status():
+    """Diagnostic: current user's plan from Firestore + session plan_gate."""
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Login required'}), 401
+    email = (session.get('user_email') or '').strip().lower()
+    sub = get_subscription(email)
+    pg = session.get('plan_gate') or {}
+    return jsonify({
+        'email': email,
+        'firestore_plan': sub.get('plan') if sub else None,
+        'firestore_status': sub.get('status') if sub else None,
+        'plan_gate': pg.get('plan') if pg else None,
+        'plan_gate_email': pg.get('email') if pg else None,
+        'has_active_plan': user_has_active_plan(email),
+    })
 
 
 @app.route('/api/subscription-status')
