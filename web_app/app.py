@@ -512,12 +512,23 @@ def about():
     return render_template('about.html')
 
 
+def _stripe_get(obj, key: str, default=None):
+    """Read a field from either a dict-like payload or a Stripe object."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    try:
+        value = getattr(obj, key)
+    except Exception:
+        return default
+    return default if value is None else value
+
+
 def _stripe_metadata_dict(checkout) -> dict:
     """Normalize Stripe Checkout Session metadata to a plain dict."""
     try:
-        md = checkout.get('metadata') if hasattr(checkout, 'get') else None
-        if md is None:
-            md = getattr(checkout, 'metadata', None)
+        md = _stripe_get(checkout, 'metadata')
         if not md:
             return {}
         if isinstance(md, dict):
@@ -553,7 +564,7 @@ def _resolve_paid_plan_from_checkout(checkout) -> str:
     except Exception as e:
         print(f"[payment_success] plan from line_items: {e}")
     try:
-        sub = checkout.get('subscription') if hasattr(checkout, 'get') else getattr(checkout, 'subscription', None)
+        sub = _stripe_get(checkout, 'subscription')
         if sub and not isinstance(sub, str):
             items = getattr(getattr(sub, 'items', None), 'data', None)
             if items:
@@ -567,7 +578,7 @@ def _resolve_paid_plan_from_checkout(checkout) -> str:
     except Exception as e:
         print(f"[payment_success] plan from subscription items: {e}")
     try:
-        sub = checkout.get('subscription') if hasattr(checkout, 'get') else getattr(checkout, 'subscription', None)
+        sub = _stripe_get(checkout, 'subscription')
         if sub and not isinstance(sub, str):
             smd = getattr(sub, 'metadata', None)
             if smd:
@@ -635,13 +646,13 @@ def payment_success():
         except Exception as e:
             print(f"[payment_success] retrieve with line_items expand failed, retrying: {e}")
             checkout = stripe.checkout.Session.retrieve(session_id, expand=['subscription'])
-        ps = checkout.get('payment_status')
-        st = checkout.get('status')
+        ps = _stripe_get(checkout, 'payment_status')
+        st = _stripe_get(checkout, 'status')
         if ps not in ('paid', 'no_payment_required') and st != 'complete':
             return redirect(url_for('login', next='/choose-plan', pay_err='not_paid'))
 
-        ref = (checkout.get('client_reference_id') or '').strip().lower()
-        cust_email = (checkout.get('customer_email') or '').strip().lower()
+        ref = (_stripe_get(checkout, 'client_reference_id') or '').strip().lower()
+        cust_email = (_stripe_get(checkout, 'customer_email') or '').strip().lower()
         session_email = (session.get('user_email') or '').strip().lower()
         logged_in = bool(session.get('logged_in'))
 
@@ -661,7 +672,7 @@ def payment_success():
             print(f"[payment_success] unresolved plan; metadata={_stripe_metadata_dict(checkout)}")
             return redirect(url_for('login', next='/choose-plan', pay_err='plan_unknown'))
 
-        sub = checkout.get('subscription')
+        sub = _stripe_get(checkout, 'subscription')
         if isinstance(sub, str):
             stripe_sub_id = sub
         elif sub is not None:
@@ -669,13 +680,13 @@ def payment_success():
         else:
             stripe_sub_id = None
 
-        cust_id = checkout.get('customer')
+        cust_id = _stripe_get(checkout, 'customer')
         if isinstance(cust_id, str):
             stripe_customer_id = cust_id
         elif cust_id is not None:
             stripe_customer_id = getattr(cust_id, 'id', None)
         else:
-            stripe_customer_id = checkout.get('customer_id')
+            stripe_customer_id = _stripe_get(checkout, 'customer_id')
 
         ok = set_plan(
             email,
@@ -788,35 +799,27 @@ def stripe_webhook():
         print(f"[webhook] Parse error: {e}")
         return jsonify({'error': 'Parse error'}), 400
 
-    if event.get('type') == 'checkout.session.completed':
-        obj = event.get('data', {}).get('object', {})
-        if hasattr(obj, 'get'):
-            ps = obj.get('payment_status')
-            st = obj.get('status')
-        else:
-            ps = getattr(obj, 'payment_status', None)
-            st = getattr(obj, 'status', None)
+    if _stripe_get(event, 'type') == 'checkout.session.completed':
+        data = _stripe_get(event, 'data', {}) or {}
+        obj = _stripe_get(data, 'object', {}) or {}
+        ps = _stripe_get(obj, 'payment_status')
+        st = _stripe_get(obj, 'status')
         if ps in ('paid', 'no_payment_required') or st == 'complete':
             md = {}
-            raw_md = getattr(obj, 'metadata', None) if not hasattr(obj, 'get') else obj.get('metadata')
+            raw_md = _stripe_get(obj, 'metadata')
             if raw_md:
                 md = dict(raw_md) if not isinstance(raw_md, dict) else raw_md
             plan = (md.get('plan') or '').strip().lower()
             if plan not in ('starter', 'pro'):
-                if hasattr(obj, 'get'):
-                    ref = (obj.get('client_reference_id') or '').lower()
-                    cust_email = (obj.get('customer_email') or '').lower()
-                else:
-                    ref = (getattr(obj, 'client_reference_id', None) or '').lower()
-                    cust_email = (getattr(obj, 'customer_email', None) or '').lower()
+                ref = (_stripe_get(obj, 'client_reference_id') or '').lower()
+                cust_email = (_stripe_get(obj, 'customer_email') or '').lower()
                 starter_price = (os.getenv('STRIPE_PRICE_STARTER') or '').strip()
                 pro_price = (os.getenv('STRIPE_PRICE_PRO') or '').strip()
-                line_items_url = f"https://api.stripe.com/v1/checkout/sessions/{getattr(obj, 'id', obj.get('id', ''))}/line_items"
                 try:
                     import stripe as stripe_mod
-                    sess_id = getattr(obj, 'id', None) or obj.get('id', '')
+                    sess_id = _stripe_get(obj, 'id', '')
                     li = stripe_mod.checkout.Session.list_line_items(sess_id, limit=5)
-                    for item in (li.get('data') if hasattr(li, 'get') else getattr(li, 'data', [])):
+                    for item in (_stripe_get(li, 'data', []) or []):
                         price = getattr(item, 'price', None)
                         pid = getattr(price, 'id', None) if price else None
                         if pid == starter_price:
@@ -829,18 +832,11 @@ def stripe_webhook():
                     print(f"[webhook] line_items lookup failed: {li_err}")
             email = (md.get('email') or '')
             if not email:
-                if hasattr(obj, 'get'):
-                    email = (obj.get('client_reference_id') or obj.get('customer_email') or '').strip().lower()
-                else:
-                    email = (getattr(obj, 'client_reference_id', None) or getattr(obj, 'customer_email', None) or '').strip().lower()
+                email = (_stripe_get(obj, 'client_reference_id') or _stripe_get(obj, 'customer_email') or '').strip().lower()
             if email and plan in ('starter', 'pro'):
                 try:
-                    if hasattr(obj, 'get'):
-                        sub_id = obj.get('subscription')
-                        cust_id = obj.get('customer')
-                    else:
-                        sub_id = getattr(obj, 'subscription', None)
-                        cust_id = getattr(obj, 'customer', None)
+                    sub_id = _stripe_get(obj, 'subscription')
+                    cust_id = _stripe_get(obj, 'customer')
                     set_plan(
                         email, plan,
                         stripe_customer_id=cust_id if isinstance(cust_id, str) else getattr(cust_id, 'id', None),
