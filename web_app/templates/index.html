@@ -20,6 +20,7 @@
                     {% if session.get('logged_in') %}
                     {% if is_admin %}<a href="{{ url_for('admin_index') }}">Admin</a>{% endif %}
                     <span class="nav-user">{{ session.get('user_email', '') }}</span>
+                    <span id="planBadgeNav" class="plan-badge-nav"></span>
                     <a href="{{ url_for('logout') }}">Logout</a>
                     {% else %}
                     <a href="{{ url_for('login') }}">Login</a>
@@ -110,7 +111,7 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="audience_type">Audience Type</label>
-                            <select id="audience_type" name="audience_type" class="form-select" style="width: 100%;">
+                            <select id="audience_type" name="audience_type" class="form-select" style="width: 100%;" onchange="handleCustomSelect('audience_type')">
                                 <option value="">Select audience (optional)</option>
                                 <option value="local">Local Community</option>
                                 <option value="young_adults">Young Adults (18-34)</option>
@@ -119,11 +120,13 @@
                                 <option value="seniors">Seniors (55+)</option>
                                 <option value="students">Students</option>
                                 <option value="general">General Public</option>
+                                <option value="__custom__">✏️ Other (type your own...)</option>
                             </select>
+                            <input type="text" id="audience_type_custom" class="custom-other-input" placeholder="Describe your target audience..." style="display:none; margin-top:6px;">
                         </div>
                         <div class="form-group">
                             <label for="offer_type">Offer Type</label>
-                            <select id="offer_type" name="offer_type" class="form-select" style="width: 100%;">
+                            <select id="offer_type" name="offer_type" class="form-select" style="width: 100%;" onchange="handleCustomSelect('offer_type')">
                                 <option value="">Select offer (optional)</option>
                                 <option value="discount">Discount / Sale</option>
                                 <option value="promotion">Special Promotion</option>
@@ -132,13 +135,15 @@
                                 <option value="new_arrival">New Arrival / Launch</option>
                                 <option value="event">Event / Grand Opening</option>
                                 <option value="information">Informational</option>
+                                <option value="__custom__">✏️ Other (type your own...)</option>
                             </select>
+                            <input type="text" id="offer_type_custom" class="custom-other-input" placeholder="Describe your offer..." style="display:none; margin-top:6px;">
                         </div>
                     </div>
 
                     <div class="form-group">
                         <label for="goal">Campaign Goal</label>
-                        <select id="goal" name="goal" class="form-select" style="width: 100%;">
+                        <select id="goal" name="goal" class="form-select" style="width: 100%;" onchange="handleCustomSelect('goal')">
                             <option value="">Select goal (optional)</option>
                             <option value="bookings">📅 Drive Bookings / Appointments</option>
                             <option value="website_visits">🌐 Website Visits</option>
@@ -147,7 +152,9 @@
                             <option value="awareness">📢 Brand Awareness</option>
                             <option value="sales">💰 Direct Sales</option>
                             <option value="leads">📋 Generate Leads</option>
+                            <option value="__custom__">✏️ Other (type your own...)</option>
                         </select>
+                        <input type="text" id="goal_custom" class="custom-other-input" placeholder="Describe your campaign goal..." style="display:none; margin-top:6px;">
                         <small>What do you want to achieve with this campaign?</small>
                     </div>
 
@@ -176,9 +183,13 @@
                     <div class="form-group">
                         <label for="num_variations">Number of Ad Variations</label>
                         <input type="number" id="num_variations" name="num_variations" 
-                               min="1" max="10" value="3" class="form-input-small">
-                        <small>How many different ad variations to generate (1-10)</small>
+                               min="1" max="10" value="3" class="form-input-small"
+                               oninput="clampVariations(this)">
+                        <small id="num_variations_hint">How many different ad variations to generate</small>
                     </div>
+
+                    <!-- Plan usage banner — filled by JS after loading /api/usage -->
+                    <div id="planUsageBanner" class="plan-usage-banner" style="display:none;"></div>
 
                     <!-- ── Sender Email Verification ── -->
                     <div class="sender-verify-panel" id="senderVerifyPanel">

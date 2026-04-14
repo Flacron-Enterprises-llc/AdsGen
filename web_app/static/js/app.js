@@ -54,26 +54,161 @@ function updateNavigationButtons() {
     if (backToStep2) backToStep2.style.display = state.currentStep > 2 ? 'inline-block' : 'none';
 }
 
+// ── Plan state (populated by loadPlanUsage) ──────────────────────────────────
+let planState = { plan: 'free', limits: {}, used: {}, loaded: false };
+
+async function loadPlanUsage() {
+    try {
+        const res = await fetch('/api/usage', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        planState.plan   = (data.plan || 'free').toLowerCase();
+        planState.limits = data.limits || {};
+        planState.used   = {
+            ai_ads:    data.ai_ads_used    || 0,
+            campaigns: data.campaigns_used || 0,
+            emails:    data.emails_used    || 0,
+            sms:       data.sms_used       || 0,
+        };
+        planState.loaded = true;
+        applyPlanToUI();
+    } catch (e) { /* non-fatal */ }
+}
+
+function applyPlanToUI() {
+    const p = planState;
+    const lim = p.limits;
+
+    // ── nav badge ──────────────────────────────────────────────────────────
+    const badge = document.getElementById('planBadgeNav');
+    if (badge) {
+        const colours = { free: '#6c757d', starter: '#0d6efd', pro: '#6f42c1' };
+        badge.textContent = p.plan.toUpperCase();
+        badge.style.background = colours[p.plan] || '#6c757d';
+    }
+
+    // ── ad variations slider ───────────────────────────────────────────────
+    const varInput = document.getElementById('num_variations');
+    const varHint  = document.getElementById('num_variations_hint');
+    if (varInput && lim.ad_variations !== undefined) {
+        const maxAllowed = lim.ad_variations === -1 ? 10 : Math.min(lim.ad_variations, 10);
+        varInput.max = maxAllowed;
+        if (parseInt(varInput.value, 10) > maxAllowed) varInput.value = maxAllowed;
+        if (varHint) {
+            const extra = lim.ad_variations === -1 ? ' (unlimited)' : ` (max ${maxAllowed} on your plan)`;
+            varHint.textContent = `How many ad variations to generate${extra}`;
+        }
+    }
+
+    // ── usage banner ───────────────────────────────────────────────────────
+    const banner = document.getElementById('planUsageBanner');
+    if (!banner) return;
+
+    const planLabel = { free: 'Free', starter: 'Starter', pro: 'Pro' }[p.plan] || p.plan;
+    const rows = [
+        { label: 'AI Ads',      used: p.used.ai_ads,    lim: lim.ai_ads_per_month    },
+        { label: 'Campaigns',   used: p.used.campaigns,  lim: lim.campaigns_per_month  },
+        { label: 'Emails',      used: p.used.emails,     lim: lim.emails_per_month     },
+        { label: 'SMS',         used: p.used.sms,        lim: lim.sms_per_month        },
+    ];
+
+    const bars = rows.map(r => {
+        const pct  = (r.lim == null || r.lim === -1) ? 0 : Math.min(100, Math.round((r.used / r.lim) * 100));
+        const warn = pct >= 90;
+        const limTxt = (r.lim == null || r.lim === -1) ? '∞' : r.lim;
+        return `<div class="usage-row">
+            <span class="usage-label">${r.label}</span>
+            <div class="usage-bar-wrap">
+                <div class="usage-bar${warn ? ' usage-bar-warn' : ''}" style="width:${pct}%"></div>
+            </div>
+            <span class="usage-count">${r.used} / ${limTxt}</span>
+        </div>`;
+    }).join('');
+
+    banner.innerHTML = `
+        <div class="plan-usage-header">
+            <span>Plan: <strong>${planLabel}</strong></span>
+            <a href="/pricing" class="plan-upgrade-link">Upgrade →</a>
+        </div>
+        <div class="usage-bars">${bars}</div>`;
+    banner.style.display = 'block';
+}
+
+// Clamp variations input to plan max immediately on input
+function clampVariations(input) {
+    const val = parseInt(input.value, 10);
+    const max = parseInt(input.max, 10) || 10;
+    if (val > max) {
+        input.value = max;
+        showNotification(`Your plan allows up to ${max} ad variation${max !== 1 ? 's' : ''}.`, 'warning');
+    }
+    if (val < 1) input.value = 1;
+}
+
+// Show/hide custom "Other" text field next to select dropdowns
+function handleCustomSelect(fieldId) {
+    const sel    = document.getElementById(fieldId);
+    const custom = document.getElementById(fieldId + '_custom');
+    if (!sel || !custom) return;
+    if (sel.value === '__custom__') {
+        custom.style.display = 'block';
+        custom.focus();
+    } else {
+        custom.style.display = 'none';
+        custom.value = '';
+    }
+}
+
+// Resolve the effective value for a field that may have a custom input
+function resolveFieldValue(fieldId) {
+    const sel    = document.getElementById(fieldId);
+    const custom = document.getElementById(fieldId + '_custom');
+    if (!sel) return null;
+    if (sel.value === '__custom__') {
+        const v = (custom ? custom.value : '').trim();
+        return v || null;
+    }
+    return sel.value || null;
+}
+
 // Form validation
 function validateForm() {
-    const ourBrand = document.getElementById('our_brand').value.trim();
-    const competitorName = document.getElementById('competitor_name').value.trim();
-    const zipcode = document.getElementById('zipcode').value.trim();
-    
-    const isValid = ourBrand && competitorName && zipcode;
-    
+    const ourBrand       = (document.getElementById('our_brand')?.value       || '').trim();
+    const competitorName = (document.getElementById('competitor_name')?.value  || '').trim();
+    const zipcode        = (document.getElementById('zipcode')?.value          || '').trim();
+
+    let errors = [];
+
+    if (!ourBrand)       errors.push('Your brand name is required.');
+    if (!competitorName) errors.push('Competitor name is required.');
+    if (!zipcode)        errors.push('ZIP code is required.');
+    else if (!/^\d{5}(-\d{4})?$/.test(zipcode)) errors.push('ZIP code must be 5 digits (e.g. 10001).');
+
+    // Custom field: if "Other" is selected, a non-empty text is required
+    ['audience_type', 'offer_type', 'goal'].forEach(fid => {
+        const sel = document.getElementById(fid);
+        const cus = document.getElementById(fid + '_custom');
+        if (sel?.value === '__custom__' && !cus?.value.trim()) {
+            errors.push(`Please fill in your custom ${fid.replace('_', ' ')}.`);
+        }
+    });
+
+    // Plan check on variations
+    const varInput = document.getElementById('num_variations');
+    if (varInput && planState.loaded) {
+        const maxV = planState.limits.ad_variations;
+        if (maxV && maxV !== -1 && parseInt(varInput.value, 10) > maxV) {
+            errors.push(`Your plan allows max ${maxV} ad variation${maxV !== 1 ? 's' : ''}.`);
+        }
+    }
+
+    const isValid = errors.length === 0;
     const generateBtn = document.getElementById('generateBtn');
     if (generateBtn) {
         generateBtn.disabled = !isValid;
-        if (!isValid) {
-            generateBtn.style.opacity = '0.5';
-            generateBtn.style.cursor = 'not-allowed';
-        } else {
-            generateBtn.style.opacity = '1';
-            generateBtn.style.cursor = 'pointer';
-        }
+        generateBtn.style.opacity  = isValid ? '1' : '0.5';
+        generateBtn.style.cursor   = isValid ? 'pointer' : 'not-allowed';
     }
-    
     return isValid;
 }
 
@@ -281,11 +416,37 @@ async function pollJobStatus(jobId, onComplete, onError) {
 // Competitor form submission
 document.getElementById('competitorForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
+    // Re-validate with latest plan state before submitting
     if (!validateForm()) {
+        showNotification('Please fix the highlighted errors before continuing.', 'error');
         return;
     }
-    
+
+    // Plan hard-check: variations
+    if (planState.loaded) {
+        const maxV = planState.limits.ad_variations;
+        const varVal = parseInt(document.getElementById('num_variations')?.value, 10) || 1;
+        if (maxV && maxV !== -1 && varVal > maxV) {
+            showNotification(`Your plan allows max ${maxV} ad variation${maxV !== 1 ? 's' : ''}. Please lower the count.`, 'error');
+            return;
+        }
+        // Check campaign limit
+        const campLim = planState.limits.campaigns_per_month;
+        if (campLim !== undefined && campLim !== -1 && planState.used.campaigns >= campLim) {
+            showNotification(`Campaign limit reached (${campLim}/month on ${planState.plan} plan). Upgrade to continue.`, 'error');
+            document.getElementById('planUsageBanner')?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+        // Check AI ads limit
+        const adLim = planState.limits.ai_ads_per_month;
+        if (adLim !== undefined && adLim !== -1 && planState.used.ai_ads >= adLim) {
+            showNotification(`AI ad generation limit reached (${adLim}/month on ${planState.plan} plan). Upgrade to continue.`, 'error');
+            document.getElementById('planUsageBanner')?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+    }
+
     const formData = new FormData(e.target);
     const data = {
         our_brand: formData.get('our_brand'),
@@ -295,9 +456,9 @@ document.getElementById('competitorForm').addEventListener('submit', async (e) =
         zipcode: formData.get('zipcode'),
         hashtags: formData.get('hashtags') ? formData.get('hashtags').split(',').map(t => t.trim()).filter(t => t) : [],
         industry: formData.get('industry') || null,
-        audience_type: formData.get('audience_type') || null,
-        offer_type: formData.get('offer_type') || null,
-        goal: formData.get('goal') || null,
+        audience_type: resolveFieldValue('audience_type'),
+        offer_type:    resolveFieldValue('offer_type'),
+        goal:          resolveFieldValue('goal'),
         num_variations: parseInt(formData.get('num_variations') || '3', 10)
     };
     
@@ -517,13 +678,13 @@ function updateAdSelectionInfo() {
         document.getElementById('continueToUsers').style.display = 'none';
     } else {
         infoBanner.innerHTML = `
-            <div class="selection-info-content">
+            <div class="selection-info-content" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
                 <span class="selection-count">
                     <strong>${selectedCount}</strong> of ${totalCount} ad${selectedCount !== 1 ? 's' : ''} selected
                 </span>
-                <div class="selection-actions">
-                    <button class="btn-link" onclick="selectAllAds()">Select All</button>
-                    <button class="btn-link" onclick="deselectAllAds()">Deselect All</button>
+                <div class="selection-actions" style="display: flex; gap: 10px;">
+                    <button class="btn btn-secondary btn-sm" onclick="selectAllAds()">Select All</button>
+                    <button class="btn btn-secondary btn-sm" onclick="deselectAllAds()">Deselect All</button>
                 </div>
             </div>
         `;
@@ -1846,7 +2007,16 @@ document.addEventListener('DOMContentLoaded', () => {
     updateEmailUsersList();
     updateUserSummary();
     updateNavigationButtons();
-    
+
+    // Load plan + usage, then enforce limits on UI
+    loadPlanUsage();
+
+    // Re-validate after custom-other inputs change
+    ['audience_type_custom', 'offer_type_custom', 'goal_custom'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', validateForm);
+    });
+
     // Handle URL input enter key
     const urlInput = document.getElementById('competitor_url');
     if (urlInput) {

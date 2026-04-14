@@ -17,7 +17,7 @@
         </header>
 
         <p class="choose-plan-notice">
-            Free plan requires no payment. Starter and Pro plans are billed monthly via Stripe — cancel anytime.
+            All plans require a card on file via Stripe — your Free plan is <strong>$0/month</strong>, no charge. Starter and Pro are billed monthly — cancel anytime.
         </p>
 
         {% if plan_error %}
@@ -45,7 +45,8 @@
                     <li>Basic dashboard</li>
                 </ul>
                 <div class="pricing-cta">
-                    <button type="button" class="btn btn-secondary btn-block" id="btnFree">Select Free Plan</button>
+                    <button type="button" class="btn btn-secondary btn-block" id="btnFree">Start Free — Add Card</button>
+                    <p style="font-size:0.78rem; color:#6c757d; margin-top:8px; text-align:center;">No charge · Card saved for future upgrades</p>
                 </div>
             </div>
 
@@ -121,7 +122,7 @@
         document.getElementById('btnFree').addEventListener('click', async function() {
             var btn = this;
             btn.disabled = true;
-            btn.textContent = 'Please wait…';
+            btn.textContent = 'Redirecting to Stripe…';
             try {
                 var res = await fetch('{{ url_for("select_free_plan") }}', {
                     method: 'POST',
@@ -131,15 +132,16 @@
                 });
                 var data = await res.json().catch(function() { return {}; });
                 if (res.ok && data.success) {
-                    window.location.href = data.redirect || '/dashboard';
+                    // If Stripe returned a setup URL, go there; otherwise direct redirect
+                    window.location.href = data.url || data.redirect || '/dashboard';
                     return;
                 }
-                showMsg(data.error || 'Could not select Free plan. Try again.', true);
+                showMsg(data.error || 'Could not start free plan setup. Try again.', true);
             } catch (e) {
                 showMsg('Request failed. Please try again.', true);
             }
             btn.disabled = false;
-            btn.textContent = 'Select Free Plan';
+            btn.textContent = 'Start Free — Add Card';
         });
 
         function goToStripe(plan) {

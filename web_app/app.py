@@ -8,6 +8,15 @@ import sys
 import json
 import time
 from datetime import timedelta
+
+# Windows cp1252 consoles crash on emoji/unicode in print() → Flask returns HTML debugger instead of JSON.
+# Force UTF-8 so unicode print statements never raise UnicodeEncodeError.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
@@ -786,15 +795,101 @@ def create_checkout_session():
 
 @app.route('/api/select-free-plan', methods=['POST'])
 def select_free_plan():
-    """Mark current user as on Free plan. Requires login."""
+    """
+    Create a Stripe Checkout session in 'setup' mode so the user saves their card.
+    No charge is made. Returns {url} to redirect to Stripe.
+    Falls back to direct activation if Stripe is not configured.
+    """
     if not session.get('logged_in'):
         return jsonify({'success': False, 'error': 'Login required'}), 401
     email = (session.get('user_email') or '').strip().lower()
-    ok = set_plan(email, 'free')
-    if not ok:
-        print(f"[select_free_plan] Firestore write failed for {email!r}; stamping plan_gate anyway")
-    set_plan_gate(email, 'free')
-    return jsonify({'success': True, 'redirect': '/dashboard'})
+
+    secret = (os.getenv('STRIPE_SECRET_KEY') or '').strip()
+    if not secret:
+        # Stripe not configured — activate free plan directly
+        ok = set_plan(email, 'free')
+        if not ok:
+            print(f"[select_free_plan] Firestore write failed for {email!r}; stamping plan_gate anyway")
+        set_plan_gate(email, 'free')
+        return jsonify({'success': True, 'redirect': '/dashboard'})
+
+    try:
+        import stripe
+        stripe.api_key = secret
+        base = _public_base_url()
+        success_url = base + '/free-setup-success?session_id={CHECKOUT_SESSION_ID}'
+        cancel_url  = base + '/choose-plan'
+        checkout = stripe.checkout.Session.create(
+            mode='setup',
+            customer_email=email,
+            client_reference_id=email,
+            currency='usd',
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={'plan': 'free'},
+        )
+        return jsonify({'success': True, 'url': checkout.url})
+    except Exception as e:
+        print(f"[select_free_plan] Stripe setup session error: {e}")
+        # Stripe error — fall back to direct activation so user isn't blocked
+        ok = set_plan(email, 'free')
+        if not ok:
+            print(f"[select_free_plan] Firestore write failed for {email!r}; stamping plan_gate anyway")
+        set_plan_gate(email, 'free')
+        return jsonify({'success': True, 'redirect': '/dashboard'})
+
+
+@app.route('/free-setup-success')
+def free_setup_success():
+    """
+    Called after Stripe Setup Checkout for the Free plan.
+    Saves the card (customer ID) and activates the free plan.
+    """
+    session_id = request.args.get('session_id', '').strip()
+    if not session_id:
+        return redirect('/choose-plan')
+
+    secret = (os.getenv('STRIPE_SECRET_KEY') or '').strip()
+    if not secret:
+        return redirect('/dashboard')
+
+    try:
+        import stripe
+        stripe.api_key = secret
+        checkout = stripe.checkout.Session.retrieve(session_id)
+
+        ref           = (_stripe_get(checkout, 'client_reference_id') or '').strip().lower()
+        cust_email    = (_stripe_get(checkout, 'customer_email') or '').strip().lower()
+        stripe_cust   = _stripe_get(checkout, 'customer') or ''
+        session_email = (session.get('user_email') or '').strip().lower()
+        logged_in     = bool(session.get('logged_in'))
+
+        # Resolve email to use
+        email = session_email or ref or cust_email
+        if not email:
+            return redirect('/login?next=/choose-plan')
+
+        stripe_customer_id = stripe_cust if isinstance(stripe_cust, str) else getattr(stripe_cust, 'id', '')
+
+        ok = set_plan(email, 'free', stripe_customer_id=stripe_customer_id or None)
+        if not ok:
+            print(f"[free_setup_success] Firestore write failed for {email!r}; stamping plan_gate")
+        set_plan_gate(email, 'free')
+
+        if logged_in and session_email == email:
+            return redirect('/dashboard')
+
+        # Session was lost — send to login
+        return redirect(url_for('login', next='/dashboard', pay_ok='1'))
+
+    except Exception as e:
+        print(f"[free_setup_success] error: {e}")
+        import traceback; traceback.print_exc()
+        # Activate anyway so user isn't stuck
+        email = (session.get('user_email') or '').strip().lower()
+        if email:
+            set_plan_gate(email, 'free')
+        return redirect('/dashboard')
 
 
 @app.route('/api/stripe-webhook', methods=['POST'])
