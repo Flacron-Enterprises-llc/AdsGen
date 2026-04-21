@@ -300,8 +300,11 @@ def user_has_active_plan(email: str) -> bool:
     if not e:
         return False
     if has_active_plan(e):
-        session.pop('plan_gate', None)
-        session.modified = True
+        # Refresh the session cache (instead of erasing it) so it survives
+        # temporary Firestore outages on the next request.
+        sub = get_subscription(e)
+        plan = (sub.get('plan') or 'free') if sub else 'free'
+        set_plan_gate(e, plan)
         return True
     raw_plan = _raw_active_plan(e)
     if raw_plan:
