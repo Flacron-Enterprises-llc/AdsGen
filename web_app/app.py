@@ -294,6 +294,60 @@ def _raw_active_plan(email: str):
     return None
 
 
+def _stripe_active_plan_for_email(email: str):
+    """
+    Ask Stripe directly: does this email have an active subscription?
+    Returns ('starter'|'pro', customer_id, subscription_id) or (None, None, None).
+
+    Covers cases where Firestore write failed or the webhook never fired
+    (missing STRIPE_WEBHOOK_SECRET, transient outage, account migration, etc.).
+    """
+    e = (email or '').strip().lower()
+    if not e:
+        return None, None, None
+    secret = (os.getenv('STRIPE_SECRET_KEY') or '').strip()
+    if not secret:
+        return None, None, None
+    starter_price = (os.getenv('STRIPE_PRICE_STARTER') or '').strip()
+    pro_price = (os.getenv('STRIPE_PRICE_PRO') or '').strip()
+    try:
+        import stripe
+        stripe.api_key = secret
+        customers = stripe.Customer.list(email=e, limit=10)
+        for cust in (getattr(customers, 'data', None) or []):
+            cust_id = getattr(cust, 'id', None)
+            if not cust_id:
+                continue
+            subs = stripe.Subscription.list(customer=cust_id, status='all', limit=10)
+            for sub in (getattr(subs, 'data', None) or []):
+                status = (getattr(sub, 'status', '') or '').lower()
+                if status not in ('active', 'trialing', 'past_due'):
+                    continue
+                plan = ''
+                md = getattr(sub, 'metadata', None)
+                if md:
+                    try:
+                        md_dict = md.to_dict() if hasattr(md, 'to_dict') else dict(md)
+                        plan = (md_dict.get('plan') or '').strip().lower()
+                    except Exception:
+                        pass
+                if plan not in ('starter', 'pro'):
+                    items = getattr(getattr(sub, 'items', None), 'data', None) or []
+                    for item in items:
+                        pid = getattr(getattr(item, 'price', None), 'id', None)
+                        if pid and pid == starter_price:
+                            plan = 'starter'
+                            break
+                        if pid and pro_price and pid == pro_price:
+                            plan = 'pro'
+                            break
+                if plan in ('starter', 'pro'):
+                    return plan, cust_id, getattr(sub, 'id', None)
+    except Exception as err:
+        print(f"[plan_gate] Stripe fallback lookup failed for {e!r}: {err}")
+    return None, None, None
+
+
 def user_has_active_plan(email: str) -> bool:
     """True if Firestore has an active subscription, or a recent verified plan_gate for this user."""
     e = (email or '').strip().lower()
@@ -309,6 +363,22 @@ def user_has_active_plan(email: str) -> bool:
     raw_plan = _raw_active_plan(e)
     if raw_plan:
         set_plan_gate(e, raw_plan)
+        return True
+    # Stripe fallback: user paid but Firestore never got the plan
+    # (webhook missing/unverified, transient write failure, etc.).
+    stripe_plan, stripe_cust, stripe_sub = _stripe_active_plan_for_email(e)
+    if stripe_plan:
+        try:
+            ok = set_plan(
+                e, stripe_plan,
+                stripe_customer_id=stripe_cust,
+                stripe_subscription_id=stripe_sub,
+            )
+            if not ok:
+                print(f"[plan_gate] Stripe said {e!r} is active on {stripe_plan!r} but Firestore write failed; using session gate")
+        except Exception as err:
+            print(f"[plan_gate] set_plan after Stripe fallback failed for {e!r}: {err}")
+        set_plan_gate(e, stripe_plan)
         return True
     pg = session.get('plan_gate') or {}
     if (pg.get('email') or '').strip().lower() != e:
@@ -682,6 +752,16 @@ def payment_success():
                 session_id,
                 expand=['subscription', 'line_items.data.price'],
             )
+        except stripe.error.InvalidRequestError as e:
+            # Stale or foreign session_id (bookmarked URL, different Stripe account/mode).
+            # Don't spam save_failed → login loop. If they're already logged in and actually
+            # have an active Stripe subscription, send them to /dashboard; otherwise pick a plan.
+            print(f"[payment_success] Unknown Stripe session_id {session_id!r}: {e}")
+            if session.get('logged_in') and user_has_active_plan((session.get('user_email') or '').strip().lower()):
+                return redirect('/dashboard')
+            if session.get('logged_in'):
+                return redirect('/choose-plan')
+            return redirect(url_for('login', next='/dashboard'))
         except Exception as e:
             print(f"[payment_success] retrieve with line_items expand failed, retrying: {e}")
             checkout = stripe.checkout.Session.retrieve(session_id, expand=['subscription'])
@@ -752,6 +832,11 @@ def payment_success():
         print(f"[payment_success] Error: {e}")
         import traceback
         traceback.print_exc()
+        # Don't trap a paid user in a login loop because of a transient Stripe/Firestore hiccup.
+        if session.get('logged_in'):
+            email_in_session = (session.get('user_email') or '').strip().lower()
+            if email_in_session and user_has_active_plan(email_in_session):
+                return redirect('/dashboard')
         return redirect(url_for('login', next='/dashboard', pay_err='save_failed'))
 
 
